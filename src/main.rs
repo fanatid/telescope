@@ -3,12 +3,13 @@ extern crate quick_error;
 
 mod args;
 mod logger;
-// mod signals;
+mod shutdown;
+mod signals;
 
 mod indexer;
 // mod client;
 
-pub(crate) type AnyError<T> = Result<T, Box<dyn std::error::Error>>;
+type AnyError<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn build_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new()
@@ -24,16 +25,20 @@ fn main() {
     logger::init();
 
     let args = args::get_args();
-    // todo: signal shutdown
+    let mut runtime = build_runtime();
 
-    let app_fut = match args.subcommand() {
-        ("indexer", Some(args)) => indexer::main(args),
-        // ("client", Some(args)) => client::main(args),
-        _ => unreachable!("Unknow subcommand"),
+    let main_fut = async move {
+        let shutdown = shutdown::subscribe();
+
+        let app_fut = match args.subcommand() {
+            ("indexer", Some(args)) => indexer::main(shutdown, args),
+            // ("client", Some(args)) => client::main(args),
+            _ => unreachable!("Unknow subcommand"),
+        };
+        app_fut.await
     };
 
-    let mut runtime = build_runtime();
-    if let Err(error) = runtime.block_on(app_fut) {
+    if let Err(error) = runtime.block_on(main_fut) {
         log::error!("{}", error);
         std::process::exit(1);
     }

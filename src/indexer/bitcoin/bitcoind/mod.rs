@@ -15,6 +15,7 @@ pub mod json;
 mod rest;
 mod rpc;
 
+// Q: Sync + Send -- safe?
 #[derive(Debug)]
 pub struct Bitcoind {
     rest: RESTClient,

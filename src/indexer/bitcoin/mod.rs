@@ -1,3 +1,4 @@
+use crate::shutdown::Shutdown;
 use crate::AnyError;
 use bitcoind::Bitcoind;
 
@@ -10,7 +11,7 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    pub async fn from_args(args: &clap::ArgMatches<'static>) -> AnyError<()> {
+    pub async fn from_args(shutdown: Shutdown, args: &clap::ArgMatches<'static>) -> AnyError<()> {
         let coin = args.value_of("coin").unwrap().to_owned();
         let chain = args.value_of("chain").unwrap().to_owned();
 
@@ -29,7 +30,7 @@ impl Indexer {
         indexer.connect().await?;
 
         //
-        indexer.start().await
+        indexer.start(shutdown).await
     }
 
     async fn connect(&mut self) -> AnyError<()> {
@@ -37,9 +38,20 @@ impl Indexer {
         Ok(())
     }
 
-    async fn start(&mut self) -> AnyError<()> {
-        let info = self.bitcoind.getblockchaininfo().await?;
-        println!("{}", info.bestblockhash);
+    async fn start(&mut self, mut shutdown: Shutdown) -> AnyError<()> {
+        loop {
+            if shutdown.is_recv() {
+                break;
+            }
+
+            let info = self.bitcoind.getblockchaininfo().await?;
+            println!("{}", info.bestblockhash);
+
+            tokio::select! {
+                _ = tokio::time::delay_for(std::time::Duration::from_secs(1)) => {},
+                _ = shutdown.wait() => { break },
+            }
+        }
 
         Ok(())
     }
