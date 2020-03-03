@@ -4,52 +4,47 @@ use bitcoind::Bitcoind;
 
 mod bitcoind;
 
-pub struct Indexer {
-    coin: String,
-    chain: String,
-    bitcoind: Bitcoind,
+pub struct Indexer<'a> {
+    shutdown: Shutdown,
+    bitcoind: Bitcoind<'a>,
 }
 
-impl Indexer {
-    pub async fn from_args(shutdown: Shutdown, args: &clap::ArgMatches<'static>) -> AnyError<()> {
-        let coin = args.value_of("coin").unwrap().to_owned();
-        let chain = args.value_of("chain").unwrap().to_owned();
+impl<'a> Indexer<'a> {
+    pub async fn from_args(shutdown: Shutdown, args: &clap::ArgMatches<'a>) -> AnyError<()> {
+        let coin = args.value_of("coin").unwrap();
+        let chain = args.value_of("chain").unwrap();
 
         // bitcoind
         let bitcoind_url = args.value_of("bitcoind").unwrap();
-        let bitcoind = Bitcoind::new(bitcoind_url)?;
+        let bitcoind = Bitcoind::new(coin, chain, bitcoind_url)?;
 
-        // indexer
-        let mut indexer = Indexer {
-            coin,
-            chain,
-            bitcoind,
-        };
+        // create indexer
+        let mut indexer = Indexer { shutdown, bitcoind };
 
         // connect first
         indexer.connect().await?;
 
         //
-        indexer.start(shutdown).await
+        indexer.start().await
     }
 
     async fn connect(&mut self) -> AnyError<()> {
-        self.bitcoind.validate(&self.coin, &self.chain).await?;
+        self.bitcoind.validate(&mut self.shutdown).await?;
         Ok(())
     }
 
-    async fn start(&mut self, mut shutdown: Shutdown) -> AnyError<()> {
+    async fn start(&mut self) -> AnyError<()> {
         loop {
-            if shutdown.is_recv() {
+            if self.shutdown.is_recv() {
                 break;
             }
 
             let info = self.bitcoind.getblockchaininfo().await?;
-            println!("{}", info.bestblockhash);
+            log::info!("{}", info.bestblockhash);
 
             tokio::select! {
                 _ = tokio::time::delay_for(std::time::Duration::from_secs(1)) => {},
-                _ = shutdown.wait() => { break },
+                _ = self.shutdown.wait() => break,
             }
         }
 

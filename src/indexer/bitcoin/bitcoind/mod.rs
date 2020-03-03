@@ -5,28 +5,32 @@ use base64::write::EncoderWriter as Base64Encoder;
 use log::info;
 use url::Url;
 
-pub use self::error::{BitcoindError, BitcoindResult};
+use self::error::{BitcoindError, BitcoindResult};
 use self::json::ResponseBlockchainInfo;
 use self::rest::RESTClient;
 use self::rpc::RPCClient;
+use crate::shutdown::Shutdown;
 
-mod error;
+pub mod error;
 pub mod json;
 mod rest;
 mod rpc;
 
-// Q: Sync + Send -- safe?
 #[derive(Debug)]
-pub struct Bitcoind {
+pub struct Bitcoind<'a> {
+    coin: &'a str,
+    chain: &'a str,
     rest: RESTClient,
     rpc: RPCClient,
 }
 
-impl Bitcoind {
-    pub fn new(url: &str) -> BitcoindResult<Bitcoind> {
-        let (url, auth) = Self::parse_url(url)?;
+impl<'a> Bitcoind<'a> {
+    pub fn new(coin: &'a str, chain: &'a str, url: &'a str) -> BitcoindResult<Bitcoind<'a>> {
+        let (url, auth) = Bitcoind::parse_url(url)?;
 
         Ok(Bitcoind {
+            coin,
+            chain,
             rest: RESTClient::new(url.clone())?,
             rpc: RPCClient::new(url, auth)?,
         })
@@ -59,38 +63,49 @@ impl Bitcoind {
         Ok((parsed, auth))
     }
 
-    pub async fn validate(&self, _coin: &str, _chain: &str) -> BitcoindResult<()> {
-        self.validate_client_initialized().await?;
-        self.validate_clients_to_same_node().await
+    pub async fn validate(&self, shutdown: &mut Shutdown) -> BitcoindResult<()> {
+        self.validate_client_initialized(shutdown).await?;
+        if !shutdown.is_recv() {
+            self.validate_clients_to_same_node().await?;
+        }
+
+        Ok(())
     }
 
-    async fn validate_client_initialized(&self) -> BitcoindResult<()> {
+    async fn validate_client_initialized(&self, shutdown: &mut Shutdown) -> BitcoindResult<()> {
         let mut ts = SystemTime::now();
         let mut last_message = String::new();
 
         loop {
-            match self.rpc.getblockchaininfo().await {
-                Ok(_) => return Ok(()),
-                Err(BitcoindError::ResultRPC(error)) => {
-                    // Client warming up error code is "-28"
-                    // https://github.com/bitcoin/bitcoin/pull/5007
-                    if error.code != -28 {
-                        return Err(BitcoindError::ResultRPC(error));
-                    }
+            tokio::select! {
+                info = self.rpc.getblockchaininfo() => {
+                    match info {
+                        Ok(_) => break,
+                        Err(BitcoindError::ResultRPC(error)) => {
+                            // Client warming up error code is "-28"
+                            // https://github.com/bitcoin/bitcoin/pull/5007
+                            if error.code != -28 {
+                                return Err(BitcoindError::ResultRPC(error));
+                            }
 
-                    let elapsed = ts.elapsed().unwrap();
-                    if elapsed > Duration::from_secs(3) || last_message != error.message {
-                        ts = SystemTime::now();
-                        last_message = error.message;
-                        info!("Waiting coin client: {}", &last_message);
-                    }
+                            let elapsed = ts.elapsed().unwrap();
+                            if elapsed > Duration::from_secs(3) || last_message != error.message {
+                                ts = SystemTime::now();
+                                last_message = error.message;
+                                info!("Waiting coin client: {}", &last_message);
+                            }
 
-                    let sleep_duration = Duration::from_millis(10);
-                    tokio::time::delay_for(sleep_duration).await;
+                            let sleep_duration = Duration::from_millis(10);
+                            tokio::time::delay_for(sleep_duration).await;
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
-                Err(e) => return Err(e),
+                _ = shutdown.wait() => break,
             }
         }
+
+        Ok(())
     }
 
     async fn validate_clients_to_same_node(&self) -> BitcoindResult<()> {

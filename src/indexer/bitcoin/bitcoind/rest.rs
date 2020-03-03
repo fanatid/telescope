@@ -8,7 +8,8 @@ use std::time::Duration;
 use reqwest::{header, redirect, Client, ClientBuilder, RequestBuilder};
 use url::Url;
 
-use super::{json::ResponseBlockchainInfo, BitcoindError, BitcoindResult};
+use super::error::{BitcoindError, BitcoindResult};
+use super::json::ResponseBlockchainInfo;
 
 pub struct RESTClient {
     client: Client,
@@ -24,7 +25,7 @@ impl fmt::Debug for RESTClient {
 }
 
 impl RESTClient {
-    pub fn new(url: Url) -> BitcoindResult<Self> {
+    pub fn new(url: Url) -> BitcoindResult<RESTClient> {
         let mut headers = header::HeaderMap::with_capacity(1);
         headers.insert(
             header::CONTENT_TYPE,
@@ -32,7 +33,7 @@ impl RESTClient {
         );
 
         let client = ClientBuilder::new()
-            .connect_timeout(Duration::from_millis(100))
+            .connect_timeout(Duration::from_millis(250))
             .timeout(Duration::from_secs(30))
             .default_headers(headers)
             .no_gzip()
@@ -51,7 +52,7 @@ impl RESTClient {
     }
 
     pub async fn getblockchaininfo(&self) -> BitcoindResult<ResponseBlockchainInfo> {
-        let timeout = Duration::from_millis(200);
+        let timeout = Duration::from_millis(250);
 
         let res_fut = self.request("rest/chaininfo.json").timeout(timeout).send();
         let res = res_fut.await.map_err(BitcoindError::Reqwest)?;

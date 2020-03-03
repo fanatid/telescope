@@ -26,7 +26,7 @@ impl fmt::Debug for RPCClient {
 
 impl RPCClient {
     // Construct new RPCClient for specified URL
-    pub fn new(url: Url, auth: Vec<u8>) -> BitcoindResult<Self> {
+    pub fn new(url: Url, auth: Vec<u8>) -> BitcoindResult<RPCClient> {
         let mut headers = header::HeaderMap::with_capacity(2);
         headers.insert(
             header::AUTHORIZATION,
@@ -39,7 +39,7 @@ impl RPCClient {
         );
 
         let client = ClientBuilder::new()
-            .connect_timeout(Duration::from_millis(100))
+            .connect_timeout(Duration::from_millis(250))
             .timeout(Duration::from_secs(30))
             .default_headers(headers)
             .no_gzip()

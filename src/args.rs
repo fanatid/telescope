@@ -3,7 +3,7 @@ use std::net::ToSocketAddrs;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use url::Url;
 
-pub fn get_args() -> ArgMatches<'static> {
+pub fn get_args<'a>() -> ArgMatches<'a> {
     let version = include_str!("./args.rs-version").trim();
     let settings = [
         AppSettings::DisableHelpSubcommand,

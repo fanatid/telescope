@@ -31,9 +31,9 @@ quick_error! {
         ResultNotFound {
             display("Requested object not found")
         }
-        ResultMismatch {
-            display("Result object not match to requested")
-        }
+        // ResultMismatch {
+        //     display("Result object not match to requested")
+        // }
         ClientMismatch {
             display("Chain, height or best block hash did not match between clients")
         }
