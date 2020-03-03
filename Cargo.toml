@@ -22,4 +22,5 @@ tokio = { version = "0.2.13", features = ["rt-core", "rt-threaded", "io-driver",
 url = "2.1.1"
 
 [build-dependencies]
+git2 = "0.12"
 toml = "0.5"
