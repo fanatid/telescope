@@ -51,9 +51,9 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
                         Arg::with_name("chain")
                             .long("chain")
                             .help("Coin chain")
-                            .possible_values(&["mainnet", "testnet"])
+                            .possible_values(&["main", "test"])
                             .value_name("name")
-                            .default_value("mainnet")
+                            .default_value("main")
                             .env("TELESCOPE_CHAIN"),
                         Arg::with_name("bitcoind")
                             .long("bitcoind")

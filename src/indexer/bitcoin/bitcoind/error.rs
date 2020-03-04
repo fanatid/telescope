@@ -34,6 +34,12 @@ quick_error! {
         // ResultMismatch {
         //     display("Result object not match to requested")
         // }
+        ClientInvalidX(x: String, actual: String, expected: String) {
+            display(r#"Invalid client {}: "{}", expected: "{}""#, x, actual, expected)
+        }
+        ClientInvalidVersionX(what: String, value: String) {
+            display("Invalid {}: {}", what, value)
+        }
         ClientMismatch {
             display("Chain, height or best block hash did not match between clients")
         }

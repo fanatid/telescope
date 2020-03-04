@@ -39,3 +39,8 @@ pub struct ResponseBlockchainInfo {
     pub blocks: u32,
     pub bestblockhash: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ResponseNetworkInfo {
+    pub subversion: String,
+}

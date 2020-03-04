@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use url::Url;
 
 use super::error::{BitcoindError, BitcoindResult};
-use super::json::{Request, Response, ResponseBlockchainInfo};
+use super::json::{Request, Response, ResponseBlockchainInfo, ResponseNetworkInfo};
 
 pub struct RPCClient {
     client: Client,
@@ -103,5 +103,9 @@ impl RPCClient {
 
     pub async fn getblockchaininfo(&self) -> BitcoindResult<ResponseBlockchainInfo> {
         self.call("getblockchaininfo", None).await
+    }
+
+    pub async fn getnetworkinfo(&self) -> BitcoindResult<ResponseNetworkInfo> {
+        self.call("getnetworkinfo", None).await
     }
 }

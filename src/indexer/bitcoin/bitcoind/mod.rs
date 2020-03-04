@@ -3,6 +3,8 @@ use std::time::{Duration, SystemTime};
 
 use base64::write::EncoderWriter as Base64Encoder;
 use log::info;
+use regex::Regex;
+use semver::{Version, VersionReq};
 use url::Url;
 
 use self::error::{BitcoindError, BitcoindResult};
@@ -15,6 +17,10 @@ pub mod error;
 pub mod json;
 mod rest;
 mod rpc;
+
+static EXPECTED_BITCOIND_VERSION: &[(&str, &str)] = &[("bitcoin", ">= 0.19.0")];
+
+static EXPECTED_BITCOIND_USERAGENT: &[(&str, &str)] = &[("bitcoin", "Satoshi")];
 
 #[derive(Debug)]
 pub struct Bitcoind<'a> {
@@ -66,6 +72,8 @@ impl<'a> Bitcoind<'a> {
     pub async fn validate(&self, shutdown: &mut Shutdown) -> BitcoindResult<()> {
         self.validate_client_initialized(shutdown).await?;
         if !shutdown.is_recv() {
+            self.validate_chain().await?;
+            self.validate_version().await?;
             self.validate_clients_to_same_node().await?;
         }
 
@@ -102,6 +110,78 @@ impl<'a> Bitcoind<'a> {
                     }
                 }
                 _ = shutdown.wait() => break,
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn validate_chain(&self) -> BitcoindResult<()> {
+        let info = self.rpc.getblockchaininfo().await?;
+        if info.chain != self.chain {
+            Err(BitcoindError::ClientInvalidX(
+                "chain".to_owned(),
+                info.chain,
+                self.chain.to_owned(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn validate_version(&self) -> BitcoindResult<()> {
+        let info = self.rpc.getnetworkinfo().await?;
+
+        // Split useragent and version from strings like: "/Satoshi:0.19.0.1/"
+        let re_split = Regex::new(r#"^/([a-zA-Z ]+):([0-9.]+)/$"#).unwrap();
+        let (useragent, mut version) = match re_split.captures(&info.subversion) {
+            Some(cap) => (cap.get(1).unwrap().as_str(), cap.get(2).unwrap().as_str()),
+            None => {
+                return Err(BitcoindError::ClientInvalidVersionX(
+                    "subversion".to_owned(),
+                    info.subversion,
+                ))
+            }
+        };
+
+        // Validate useragent
+        for (coin, value) in EXPECTED_BITCOIND_USERAGENT {
+            if coin == &self.coin {
+                if value != &useragent {
+                    return Err(BitcoindError::ClientInvalidX(
+                        "useragent".to_owned(),
+                        useragent.to_owned(),
+                        value.to_owned().to_owned(),
+                    ));
+                }
+
+                break;
+            }
+        }
+
+        // Remove extra digits in version and validate it
+        while version.matches('.').count() > 2 {
+            version = &version[0..version.rfind('.').unwrap()];
+        }
+        for (coin, value) in EXPECTED_BITCOIND_VERSION {
+            if coin == &self.coin {
+                let actual = match Version::parse(version) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        return Err(BitcoindError::ClientInvalidVersionX(
+                            "version".to_owned(),
+                            version.to_owned(),
+                        ))
+                    }
+                };
+                let required = VersionReq::parse(value).unwrap();
+                if !required.matches(&actual) {
+                    return Err(BitcoindError::ClientInvalidX(
+                        "version".to_owned(),
+                        version.to_owned(),
+                        value.to_owned().to_owned(),
+                    ));
+                }
             }
         }
 
