@@ -1,25 +1,25 @@
+use crate::db::DB;
 use crate::shutdown::Shutdown;
 use crate::AnyError;
 use bitcoind::Bitcoind;
 
 mod bitcoind;
 
-pub struct Indexer<'a> {
+#[derive(Debug)]
+pub struct Indexer {
     shutdown: Shutdown,
-    bitcoind: Bitcoind<'a>,
+    db: DB,
+    bitcoind: Bitcoind,
 }
 
-impl<'a> Indexer<'a> {
-    pub async fn from_args(shutdown: Shutdown, args: &clap::ArgMatches<'a>) -> AnyError<()> {
-        let coin = args.value_of("coin").unwrap();
-        let chain = args.value_of("chain").unwrap();
-
-        // bitcoind
-        let bitcoind_url = args.value_of("bitcoind").unwrap();
-        let bitcoind = Bitcoind::new(coin, chain, bitcoind_url)?;
-
+impl Indexer {
+    pub async fn from_args(shutdown: Shutdown, args: &clap::ArgMatches<'_>) -> AnyError<()> {
         // create indexer
-        let mut indexer = Indexer { shutdown, bitcoind };
+        let mut indexer = Indexer {
+            shutdown,
+            db: DB::from_args(args),
+            bitcoind: Bitcoind::from_args(args)?,
+        };
 
         // connect first
         indexer.connect().await?;
@@ -29,6 +29,7 @@ impl<'a> Indexer<'a> {
     }
 
     async fn connect(&mut self) -> AnyError<()> {
+        self.db.connect(&mut self.shutdown).await?;
         self.bitcoind.validate(&mut self.shutdown).await?;
         Ok(())
     }

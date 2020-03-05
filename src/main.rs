@@ -2,12 +2,14 @@
 extern crate quick_error;
 
 mod args;
+mod db;
 mod logger;
 mod shutdown;
 mod signals;
 
+// SubCommands
+mod client;
 mod indexer;
-// mod client;
 
 type AnyError<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -30,12 +32,11 @@ fn main() {
     let main_fut = async move {
         let shutdown = shutdown::subscribe();
 
-        let app_fut = match args.subcommand() {
-            ("indexer", Some(args)) => indexer::main(shutdown, args),
-            // ("client", Some(args)) => client::main(args),
+        match args.subcommand() {
+            ("indexer", Some(args)) => indexer::main(shutdown, args).await,
+            ("client", Some(args)) => client::main(shutdown, args).await,
             _ => unreachable!("Unknow subcommand"),
-        };
-        app_fut.await
+        }
     };
 
     if let Err(error) = runtime.block_on(main_fut) {

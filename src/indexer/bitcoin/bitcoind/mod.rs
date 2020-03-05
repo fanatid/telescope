@@ -23,15 +23,22 @@ static EXPECTED_BITCOIND_VERSION: &[(&str, &str)] = &[("bitcoin", ">= 0.19.0")];
 static EXPECTED_BITCOIND_USERAGENT: &[(&str, &str)] = &[("bitcoin", "Satoshi")];
 
 #[derive(Debug)]
-pub struct Bitcoind<'a> {
-    coin: &'a str,
-    chain: &'a str,
+pub struct Bitcoind {
+    coin: String,
+    chain: String,
     rest: RESTClient,
     rpc: RPCClient,
 }
 
-impl<'a> Bitcoind<'a> {
-    pub fn new(coin: &'a str, chain: &'a str, url: &'a str) -> BitcoindResult<Bitcoind<'a>> {
+impl Bitcoind {
+    pub fn from_args(args: &clap::ArgMatches<'_>) -> BitcoindResult<Bitcoind> {
+        let coin = args.value_of("coin").unwrap().to_owned();
+        let chain = args.value_of("chain").unwrap().to_owned();
+        let url = args.value_of("bitcoind").unwrap();
+        Bitcoind::new(coin, chain, url)
+    }
+
+    pub fn new(coin: String, chain: String, url: &str) -> BitcoindResult<Bitcoind> {
         let (url, auth) = Bitcoind::parse_url(url)?;
 
         Ok(Bitcoind {
