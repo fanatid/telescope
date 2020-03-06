@@ -40,8 +40,13 @@ fn main() {
     };
 
     if let Err(error) = runtime.block_on(main_fut) {
-        log::error!("{}", error);
-        std::process::exit(1);
+        // Shutdown signal is not an error, but provide nice way exit from app with `?` operator.
+        // We can not check that `error` is `ShutdownSignal`, because `Box<dyn Error>` loose info.
+        // More over, ShutdownSignal can be sub-error, see BitcoindError as example.
+        if format!("{:?}", error).find("ShutdownSignal").is_none() {
+            log::error!("{}", error);
+            std::process::exit(1);
+        }
     }
 
     std::process::exit(0);

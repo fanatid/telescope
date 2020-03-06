@@ -39,13 +39,17 @@ impl DB {
             .max_lifetime(None)
             .idle_timeout(Some(Duration::from_secs(10 * 60)))
             .connection_timeout(conn_timeout)
-            .build_unchecked(manager); // .build(manager) -- will check nothing, because minimum number of idle connections is 0
+            // .build(manager) -- will check nothing, because minimum number of idle connections is 0
+            .build_unchecked(manager);
 
         DB { pool }
     }
 
-    pub async fn connect(&self, _shutdown: &mut Shutdown) -> AnyError<()> {
-        self.validate_version().await
+    pub async fn connect(&self, shutdown: &mut Shutdown) -> AnyError<()> {
+        tokio::select! {
+            v = self.validate_version() => v,
+            e = shutdown.wait() => Err(e.into()),
+        }
     }
 
     async fn validate_version(&self) -> AnyError<()> {

@@ -1,9 +1,24 @@
+use std::fmt;
+
 use futures::stream::StreamExt as _;
 use log::info;
 use tokio::sync::broadcast;
 
 use crate::signals::ShutdownSignals;
 
+// Shutdown signal like std::error::Error
+#[derive(Debug)]
+pub struct ShutdownSignal;
+
+impl fmt::Display for ShutdownSignal {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
+}
+
+impl std::error::Error for ShutdownSignal {}
+
+// Shutdown
 #[derive(Debug)]
 pub struct Shutdown {
     received: bool,
@@ -40,7 +55,7 @@ impl Shutdown {
         self.received
     }
 
-    pub async fn wait(&mut self) {
+    pub async fn wait(&mut self) -> ShutdownSignal {
         if !self.received {
             match self.rx.recv().await {
                 Ok(_) => {
@@ -49,6 +64,8 @@ impl Shutdown {
                 Err(err) => panic!("Shutdown channel error: {:?}", err),
             }
         }
+
+        ShutdownSignal {}
     }
 }
 

@@ -78,12 +78,11 @@ impl Bitcoind {
 
     pub async fn validate(&self, shutdown: &mut Shutdown) -> BitcoindResult<()> {
         self.validate_client_initialized(shutdown).await?;
-        if !shutdown.is_recv() {
-            self.validate_chain().await?;
-            self.validate_version().await?;
-            self.validate_clients_to_same_node().await?;
-        }
-
+        tokio::try_join!(
+            self.validate_chain(),
+            self.validate_version(),
+            self.validate_clients_to_same_node(),
+        )?;
         Ok(())
     }
 
@@ -116,7 +115,7 @@ impl Bitcoind {
                         Err(e) => return Err(e),
                     }
                 }
-                _ = shutdown.wait() => break,
+                e = shutdown.wait() => return Err(BitcoindError::Shutdown(e)),
             }
         }
 

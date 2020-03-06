@@ -1,3 +1,8 @@
+use std::time::Duration;
+
+use futures::TryFutureExt as _;
+use tokio::time::delay_for;
+
 use crate::db::DB;
 use crate::shutdown::Shutdown;
 use crate::AnyError;
@@ -29,8 +34,11 @@ impl Indexer {
     }
 
     async fn connect(&mut self) -> AnyError<()> {
-        self.db.connect(&mut self.shutdown).await?;
-        self.bitcoind.validate(&mut self.shutdown).await?;
+        let mut shutdown = self.shutdown.clone();
+        tokio::try_join!(
+            self.db.connect(&mut self.shutdown),
+            self.bitcoind.validate(&mut shutdown).map_err(|e| e.into()),
+        )?;
         Ok(())
     }
 
@@ -44,8 +52,8 @@ impl Indexer {
             log::info!("{}", info.bestblockhash);
 
             tokio::select! {
-                _ = tokio::time::delay_for(std::time::Duration::from_secs(1)) => {},
-                _ = self.shutdown.wait() => break,
+                _ = delay_for(Duration::from_secs(1)) => {},
+                e = self.shutdown.wait() => return Err(e.into()),
             }
         }
 

@@ -3,10 +3,12 @@ use serde_json::Error as SerdeError;
 use url::ParseError as UrlParseError;
 
 use super::json::ResponseError;
+use crate::shutdown::ShutdownSignal;
 
 quick_error! {
     #[derive(Debug)]
     pub enum BitcoindError {
+        Shutdown(err: ShutdownSignal) {}
         InvalidUrl(err: UrlParseError) {
             display("Invalid URL ({})", err)
         }
