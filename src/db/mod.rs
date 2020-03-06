@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use bb8::Pool;
@@ -45,7 +46,7 @@ impl DB {
         DB { pool }
     }
 
-    pub async fn connect(&self, shutdown: &mut Shutdown) -> AnyError<()> {
+    pub async fn connect(&self, shutdown: &Arc<Shutdown>) -> AnyError<()> {
         tokio::select! {
             v = self.validate_version() => v,
             e = shutdown.wait() => Err(e.into()),

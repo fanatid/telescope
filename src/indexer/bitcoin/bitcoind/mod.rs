@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use base64::write::EncoderWriter as Base64Encoder;
@@ -76,7 +77,7 @@ impl Bitcoind {
         Ok((parsed, auth))
     }
 
-    pub async fn validate(&self, shutdown: &mut Shutdown) -> BitcoindResult<()> {
+    pub async fn validate(&self, shutdown: &Arc<Shutdown>) -> BitcoindResult<()> {
         self.validate_client_initialized(shutdown).await?;
         tokio::try_join!(
             self.validate_chain(),
@@ -86,7 +87,7 @@ impl Bitcoind {
         Ok(())
     }
 
-    async fn validate_client_initialized(&self, shutdown: &mut Shutdown) -> BitcoindResult<()> {
+    async fn validate_client_initialized(&self, shutdown: &Arc<Shutdown>) -> BitcoindResult<()> {
         let mut ts = SystemTime::now();
         let mut last_message = String::new();
 

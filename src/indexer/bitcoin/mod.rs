@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::TryFutureExt as _;
@@ -12,13 +13,13 @@ mod bitcoind;
 
 #[derive(Debug)]
 pub struct Indexer {
-    shutdown: Shutdown,
+    shutdown: Arc<Shutdown>,
     db: DB,
     bitcoind: Bitcoind,
 }
 
 impl Indexer {
-    pub async fn from_args(shutdown: Shutdown, args: &clap::ArgMatches<'_>) -> AnyError<()> {
+    pub async fn from_args(shutdown: Arc<Shutdown>, args: &clap::ArgMatches<'_>) -> AnyError<()> {
         // create indexer
         let mut indexer = Indexer {
             shutdown,
@@ -33,20 +34,17 @@ impl Indexer {
         indexer.start().await
     }
 
-    async fn connect(&mut self) -> AnyError<()> {
-        let mut shutdown = self.shutdown.clone();
+    async fn connect(&self) -> AnyError<()> {
         tokio::try_join!(
-            self.db.connect(&mut self.shutdown),
-            self.bitcoind.validate(&mut shutdown).map_err(|e| e.into()),
+            self.db.connect(&self.shutdown),
+            self.bitcoind.validate(&self.shutdown).map_err(|e| e.into()),
         )?;
         Ok(())
     }
 
     async fn start(&mut self) -> AnyError<()> {
         loop {
-            if self.shutdown.is_recv() {
-                break;
-            }
+            self.shutdown.is_recv().await?;
 
             let info = self.bitcoind.getblockchaininfo().await?;
             log::info!("{}", info.bestblockhash);
@@ -56,7 +54,5 @@ impl Indexer {
                 e = self.shutdown.wait() => return Err(e.into()),
             }
         }
-
-        Ok(())
     }
 }

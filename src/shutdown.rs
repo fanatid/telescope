@@ -1,8 +1,9 @@
 use std::fmt;
+use std::sync::Arc;
 
 use futures::stream::StreamExt as _;
 use log::info;
-use tokio::sync::broadcast;
+use tokio::sync::{Notify, RwLock};
 
 use crate::signals::ShutdownSignals;
 
@@ -21,74 +22,51 @@ impl std::error::Error for ShutdownSignal {}
 // Shutdown
 #[derive(Debug)]
 pub struct Shutdown {
-    received: bool,
-    tx: broadcast::Sender<()>,
-    rx: broadcast::Receiver<()>,
+    notified: RwLock<bool>,
+    notify: Notify,
 }
 
 impl Shutdown {
     pub fn new() -> Shutdown {
-        let (tx, rx) = broadcast::channel::<()>(1);
         Shutdown {
-            received: false,
-            tx,
-            rx,
+            notified: RwLock::new(false),
+            notify: Notify::new(),
         }
     }
 
-    pub fn set(&mut self) {
-        // unwrap is safe because `self` have Receiver for this Sender
-        self.tx.send(()).unwrap();
+    pub async fn set(&self) {
+        let mut notified = self.notified.write().await;
+        *notified = true;
+        self.notify.notify();
     }
 
-    pub fn is_recv(&mut self) -> bool {
-        if !self.received {
-            match self.rx.try_recv() {
-                Ok(_) => {
-                    self.received = true;
-                }
-                Err(broadcast::TryRecvError::Empty) => {}
-                Err(err) => panic!("Shutdown channel error: {:?}", err),
-            }
+    pub async fn is_recv(&self) -> Result<(), ShutdownSignal> {
+        if *self.notified.read().await {
+            Err(ShutdownSignal {})
+        } else {
+            Ok(())
         }
-
-        self.received
     }
 
-    pub async fn wait(&mut self) -> ShutdownSignal {
-        if !self.received {
-            match self.rx.recv().await {
-                Ok(_) => {
-                    self.received = true;
-                }
-                Err(err) => panic!("Shutdown channel error: {:?}", err),
-            }
+    pub async fn wait(&self) -> ShutdownSignal {
+        if !*self.notified.read().await {
+            self.notify.notified().await;
         }
 
         ShutdownSignal {}
     }
 }
 
-impl Clone for Shutdown {
-    fn clone(&self) -> Shutdown {
-        Shutdown {
-            received: self.received,
-            tx: self.tx.clone(),
-            rx: self.tx.subscribe(),
-        }
-    }
-}
+pub fn subscribe() -> Arc<Shutdown> {
+    let shutdown = Arc::new(Shutdown::new());
 
-pub fn subscribe() -> Shutdown {
-    let shutdown = Shutdown::new();
-    let mut notifier = shutdown.clone();
-
+    let notifier = shutdown.clone();
     tokio::spawn(async move {
         let mut s = ShutdownSignals::new();
 
         if let Some(sig) = s.next().await {
             info!("{:?} received, shutting down...", sig);
-            notifier.set();
+            notifier.set().await;
 
             if let Some(sig) = s.next().await {
                 info!("{:?} received, exit now...", sig);
