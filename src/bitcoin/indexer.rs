@@ -4,12 +4,10 @@ use std::time::Duration;
 use futures::TryFutureExt as _;
 use tokio::time::delay_for;
 
+use super::bitcoind::Bitcoind;
 use crate::db::DB;
 use crate::shutdown::Shutdown;
-use crate::AnyError;
-use bitcoind::Bitcoind;
-
-mod bitcoind;
+use crate::{AnyError, AppFutFromArgs};
 
 #[derive(Debug)]
 pub struct Indexer {
@@ -19,7 +17,7 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    pub async fn from_args(shutdown: Arc<Shutdown>, args: &clap::ArgMatches<'_>) -> AnyError<()> {
+    pub fn from_args(shutdown: Arc<Shutdown>, args: &clap::ArgMatches<'_>) -> AppFutFromArgs {
         // create indexer
         let mut indexer = Indexer {
             shutdown,
@@ -27,11 +25,13 @@ impl Indexer {
             bitcoind: Bitcoind::from_args(args)?,
         };
 
-        // connect first
-        indexer.connect().await?;
+        Ok(Box::pin(async move {
+            // connect first
+            indexer.connect().await?;
 
-        //
-        indexer.start().await
+            //
+            indexer.start().await
+        }))
     }
 
     async fn connect(&self) -> AnyError<()> {

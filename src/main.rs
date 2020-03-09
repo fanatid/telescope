@@ -8,10 +8,10 @@ mod shutdown;
 mod signals;
 
 // SubCommands
-mod client;
-mod indexer;
+mod bitcoin;
 
 type AnyError<T> = Result<T, Box<dyn std::error::Error>>;
+type AppFutFromArgs = AnyError<std::pin::Pin<Box<dyn std::future::Future<Output = AnyError<()>>>>>;
 
 fn build_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new()
@@ -33,10 +33,17 @@ fn main() {
         let shutdown = shutdown::subscribe();
 
         match args.subcommand() {
-            ("indexer", Some(args)) => indexer::main(shutdown, args).await,
-            ("client", Some(args)) => client::main(shutdown, args).await,
+            ("indexer", Some(args)) => match args.subcommand() {
+                ("bitcoin", Some(args)) => bitcoin::Indexer::from_args(shutdown, args),
+                _ => unreachable!("Unknow subcommand"),
+            },
+            ("client", Some(args)) => match args.subcommand() {
+                ("bitcoin", Some(args)) => bitcoin::Client::from_args(shutdown, args),
+                _ => unreachable!("Unknow subcommand"),
+            },
             _ => unreachable!("Unknow subcommand"),
-        }
+        }?
+        .await
     };
 
     if let Err(error) = runtime.block_on(main_fut) {

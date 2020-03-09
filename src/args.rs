@@ -7,13 +7,15 @@ use url::Url;
 
 pub fn get_args<'a>() -> ArgMatches<'a> {
     let version = include_str!("./args.rs-version").trim();
-    let settings = [
+
+    // Settings, global and leaf
+    let settings_global = [
         AppSettings::DisableHelpSubcommand,
         AppSettings::DeriveDisplayOrder,
         AppSettings::SubcommandRequiredElseHelp,
         AppSettings::VersionlessSubcommands,
     ];
-    let settings_child = [
+    let settings_leaf = [
         AppSettings::DisableHelpSubcommand,
         AppSettings::DeriveDisplayOrder,
         AppSettings::VersionlessSubcommands,
@@ -22,7 +24,7 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
     // We can set `global` and `required` flags at one moment,
     // because clap panic with error: "Global arguments cannot be required."
     // So we will add these flags to each subcommand manually.
-    let global_args = [
+    let args_global = [
         // PostgreSQL args
         Arg::with_name("postgres")
             .long("postgres")
@@ -54,46 +56,57 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
             .default_value("localhost:8000")
             .env("TELESCOPE_LISTEN_HTTP"),
     ];
+    // Bitcoin shared args
+    let args_bitcoin = [
+        Arg::with_name("coin")
+            .long("coin")
+            .help("Coin name")
+            .possible_values(&["bitcoin"])
+            .value_name("name")
+            .default_value("bitcoin")
+            .env("TELESCOPE_COIN"),
+        Arg::with_name("chain")
+            .long("chain")
+            .help("Coin chain")
+            .possible_values(&["main", "test"])
+            .value_name("name")
+            .default_value("main")
+            .env("TELESCOPE_CHAIN"),
+    ];
+    let args_bitcoin_indexer = [
+        // Client: bitcoind
+        Arg::with_name("bitcoind")
+            .long("bitcoind")
+            .help("Bitcoind URL to RPC & Rest")
+            .required(true)
+            .validator(validate_url)
+            .value_name("url")
+            .default_value("http://bitcoinrpc:password@localhost:8332/")
+            .env("TELESCOPE_BITCOIND"),
+    ];
+    let args_bitcoin_client = [];
 
+    // Bitcoin shared SubCommand
+    let subcommand_bitcoin = SubCommand::with_name("bitcoin")
+        .about("Bitcoin, bitcoin forks and bitcoin like coins")
+        .settings(&settings_leaf)
+        .args(&args_global)
+        .args(&args_bitcoin);
+
+    // App and SubCommands
     App::new("telescope")
         .about("Set of blockchains indexers")
         .version(version)
-        .settings(&settings)
+        .settings(&settings_global)
         .subcommands(vec![
             SubCommand::with_name("indexer")
-                .about("Start indexer")
-                .settings(&settings)
-                .subcommands(vec![SubCommand::with_name("bitcoin")
-                    .about("Start indexer for bitcoin and bitcoin forks")
-                    .settings(&settings_child)
-                    .args(&global_args)
-                    .args(&[
-                        // Bitcoin forks and chains
-                        Arg::with_name("coin")
-                            .long("coin")
-                            .help("Coin name")
-                            .possible_values(&["bitcoin"])
-                            .value_name("name")
-                            .default_value("bitcoin")
-                            .env("TELESCOPE_COIN"),
-                        Arg::with_name("chain")
-                            .long("chain")
-                            .help("Coin chain")
-                            .possible_values(&["main", "test"])
-                            .value_name("name")
-                            .default_value("main")
-                            .env("TELESCOPE_CHAIN"),
-                        // Client: bitcoind
-                        Arg::with_name("bitcoind")
-                            .long("bitcoind")
-                            .help("Bitcoind URL to RPC & Rest")
-                            .required(true)
-                            .validator(validate_url)
-                            .value_name("url")
-                            .default_value("http://bitcoinrpc:password@localhost:8332/")
-                            .env("TELESCOPE_BITCOIND"),
-                    ])]),
-            SubCommand::with_name("client").about("TODO"),
+                .about("Transform blockchain client data to our database")
+                .settings(&settings_global)
+                .subcommands(vec![subcommand_bitcoin.clone().args(&args_bitcoin_indexer)]),
+            SubCommand::with_name("client")
+                .about("API to transformed data in database")
+                .settings(&settings_global)
+                .subcommands(vec![subcommand_bitcoin.clone().args(&args_bitcoin_client)]),
         ])
         .get_matches()
 }
