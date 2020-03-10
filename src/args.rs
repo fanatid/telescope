@@ -47,6 +47,13 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
             .value_name("number")
             .default_value("10")
             .env("TELESCOPE_POSTGRES_POOL_SIZE"),
+        Arg::with_name("postgres_schema")
+            .long("postgres_schema")
+            .help("PostgreSQL schema name")
+            .validator(validate_pg_schema)
+            .value_name("name")
+            .default_value("default")
+            .env("TELESCOPE_POSTGRES_SCHEMA"),
         // HTTP (http-api / ws / prometheus)
         Arg::with_name("listen_http")
             .long("listen-http")
@@ -146,4 +153,21 @@ fn validate_duration(value: String) -> ValidateResult {
 fn validate_u32(value: String) -> ValidateResult {
     let parsed = value.parse::<usize>();
     validate_transform_result(parsed)
+}
+
+// https://til.hashrocket.com/posts/8f87c65a0a-postgresqls-max-identifier-length-is-63-bytes
+// Max identifier length is 63 symbols.
+fn validate_pg_schema(value: String) -> ValidateResult {
+    if value.len() > 63 {
+        return Err(format!(
+            "Schema name should not be long than 63 symbols, current length: {}",
+            value.len()
+        ));
+    }
+
+    if value.starts_with("pg_") {
+        return Err(r#"Schema name started with "pg_" not allowed"#.to_owned());
+    }
+
+    Ok(())
 }

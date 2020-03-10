@@ -9,6 +9,8 @@ use crate::db::DB;
 use crate::shutdown::Shutdown;
 use crate::{AnyError, AppFutFromArgs};
 
+static INDEXER_QUERIES: &[(&str, &str)] = &[];
+
 #[derive(Debug)]
 pub struct Indexer {
     shutdown: Arc<Shutdown>,
@@ -21,7 +23,7 @@ impl Indexer {
         // create indexer
         let mut indexer = Indexer {
             shutdown,
-            db: DB::from_args(args),
+            db: DB::from_args(args, INDEXER_QUERIES),
             bitcoind: Bitcoind::from_args(args)?,
         };
 
