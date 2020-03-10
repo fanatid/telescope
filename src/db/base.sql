@@ -1,3 +1,6 @@
+-- name: selectVersion
+SELECT current_setting('server_version') AS version;
+
 -- name: schemaExists
 SELECT 1 FROM pg_namespace WHERE nspname = '{SCHEMA}';
 
@@ -25,6 +28,3 @@ SELECT coin, chain, version, extra, stage FROM {SCHEMA}.schema_info LIMIT 1;
 
 -- name: schemaInfoSetStage
 UPDATE {SCHEMA}.schema_info SET stage = $1;
-
--- name: selectVersion
-SELECT current_setting('server_version') AS version;

@@ -32,7 +32,7 @@ fn main() {
     let main_fut = async move {
         let shutdown = shutdown::subscribe();
 
-        match args.subcommand() {
+        let fut = match args.subcommand() {
             ("indexer", Some(args)) => match args.subcommand() {
                 ("bitcoin", Some(args)) => bitcoin::Indexer::from_args(shutdown, args),
                 _ => unreachable!("Unknow subcommand"),
@@ -42,8 +42,11 @@ fn main() {
                 _ => unreachable!("Unknow subcommand"),
             },
             _ => unreachable!("Unknow subcommand"),
-        }?
-        .await
+        }?;
+
+        drop(args); // do not need args anymore
+
+        fut.await
     };
 
     if let Err(error) = runtime.block_on(main_fut) {

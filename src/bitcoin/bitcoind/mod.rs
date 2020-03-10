@@ -27,21 +27,22 @@ static EXPECTED_BITCOIND_USERAGENT: &[(&str, &str)] = &[("bitcoin", "Satoshi")];
 pub struct Bitcoind {
     coin: String,
     chain: String,
+
     rest: RESTClient,
     rpc: RPCClient,
 }
 
 impl Bitcoind {
     pub fn from_args(args: &clap::ArgMatches<'_>) -> BitcoindResult<Bitcoind> {
+        // args
         let coin = args.value_of("coin").unwrap().to_owned();
         let chain = args.value_of("chain").unwrap().to_owned();
         let url = args.value_of("bitcoind").unwrap();
-        Bitcoind::new(coin, chain, url)
-    }
 
-    pub fn new(coin: String, chain: String, url: &str) -> BitcoindResult<Bitcoind> {
+        // Parse URL
         let (url, auth) = Bitcoind::parse_url(url)?;
 
+        // Instance
         Ok(Bitcoind {
             coin,
             chain,

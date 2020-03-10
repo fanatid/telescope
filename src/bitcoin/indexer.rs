@@ -5,16 +5,16 @@ use futures::TryFutureExt as _;
 use tokio::time::delay_for;
 
 use super::bitcoind::Bitcoind;
-use crate::db::DB;
+use crate::db::{DataBase, StaticQueries};
 use crate::shutdown::Shutdown;
 use crate::{AnyError, AppFutFromArgs};
 
-static INDEXER_QUERIES: &[(&str, &str)] = &[];
+static INDEXER_QUERIES: StaticQueries = &[];
 
 #[derive(Debug)]
 pub struct Indexer {
     shutdown: Arc<Shutdown>,
-    db: DB,
+    db: DataBase,
     bitcoind: Bitcoind,
 }
 
@@ -23,7 +23,7 @@ impl Indexer {
         // create indexer
         let mut indexer = Indexer {
             shutdown,
-            db: DB::from_args(args, INDEXER_QUERIES),
+            db: DataBase::from_args(args, 1, INDEXER_QUERIES),
             bitcoind: Bitcoind::from_args(args)?,
         };
 
@@ -38,7 +38,7 @@ impl Indexer {
 
     async fn connect(&self) -> AnyError<()> {
         tokio::try_join!(
-            self.db.connect(&self.shutdown),
+            self.db.validate(&self.shutdown),
             self.bitcoind.validate(&self.shutdown).map_err(|e| e.into()),
         )?;
         Ok(())
