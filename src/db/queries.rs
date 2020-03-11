@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Index;
 
-use super::yesql::parse_sql;
+use rsyesql::{parse as parse_sql, IndexMap};
 
 pub type StaticQueries = &'static [(&'static str, &'static str)];
 
@@ -21,7 +21,7 @@ impl Queries {
         for (name, text) in queries.iter() {
             let name = (*name).to_owned();
 
-            let mut group = parse_sql(text);
+            let mut group = parse_sql(text).unwrap();
             for (_, query) in group.iter_mut() {
                 *query = query.replace("{SCHEMA}", schema);
             }
@@ -50,7 +50,7 @@ impl Index<&str> for Queries {
 
 #[derive(Debug)]
 pub struct QueriesMap {
-    queries: HashMap<String, String>,
+    queries: IndexMap<String, String>,
 }
 
 impl Index<&str> for QueriesMap {

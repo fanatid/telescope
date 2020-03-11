@@ -4,4 +4,3 @@ pub use self::queries::StaticQueries;
 mod database;
 mod error;
 mod queries;
-mod yesql;

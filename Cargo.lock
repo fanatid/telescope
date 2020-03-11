@@ -1104,6 +1104,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsyesql"
+version = "0.1.0"
+source = "git+https://github.com/fanatid/rsyesql#v0.1.0#9c3a484f76e997dbe1eca9429b2b21c9e03f647e"
+dependencies = [
+ "indexmap",
+ "lazy_static",
+ "quick-error",
+ "regex",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1296,6 +1307,7 @@ dependencies = [
  "quick-error",
  "regex",
  "reqwest",
+ "rsyesql",
  "semver",
  "serde",
  "serde_json",
