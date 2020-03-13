@@ -22,8 +22,8 @@ pub struct DataBase {
     chain: String,
     version: u16,
 
-    queries: Queries,
-    pool: Pool<PostgresConnectionManager<NoTls>>,
+    pub queries: Queries,
+    pub pool: Pool<PostgresConnectionManager<NoTls>>,
 }
 
 impl DataBase {
