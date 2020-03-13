@@ -6,7 +6,7 @@ use bb8_postgres::PostgresConnectionManager;
 use futures::TryFutureExt;
 use humantime::parse_duration;
 use log::info;
-use regex::Regex;
+use semver::{Version, VersionReq};
 use tokio_postgres::{Config, NoTls};
 
 use super::error::DataBaseError;
@@ -76,17 +76,24 @@ impl DataBase {
 
     async fn validate_version(&self) -> AnyError<()> {
         let version_query = &self.queries["base"]["selectVersion"];
-        let version_required = "12.*".to_owned();
-        let version_re = Regex::new(r#"12\..*"#).unwrap();
+        let version_req = VersionReq::parse("12.*").unwrap();
 
         let conn = self.pool.get().await?;
         let row = conn.query_one(version_query, &[]).await?;
-        let version: String = row.get("version");
+        let mut version: String = row.get("version");
+        if version.matches('.').count() == 1 {
+            version += ".0";
+        }
 
-        if version_re.is_match(&version) {
+        let version = Version::parse(&version).unwrap();
+        if version_req.matches(&version) {
             Ok(())
         } else {
-            Err(DataBaseError::InvalidPostgreSQLVersion(version, version_required).into())
+            Err(DataBaseError::InvalidPostgreSQLVersion(
+                format!("{}", version),
+                format!("{}", version_req),
+            )
+            .into())
         }
     }
 
