@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Index;
 
-use rsyesql::{parse as parse_sql, IndexMap};
+use rsyesql::{indexmap, parse as parse_sql};
 
 pub type StaticQueries = &'static [(&'static str, &'static str)];
 
@@ -50,7 +50,7 @@ impl Index<&str> for Queries {
 
 #[derive(Debug)]
 pub struct QueriesMap {
-    queries: IndexMap<String, String>,
+    queries: indexmap::IndexMap<String, String>,
 }
 
 impl Index<&str> for QueriesMap {
@@ -62,5 +62,25 @@ impl Index<&str> for QueriesMap {
             Some(v) => v.as_str(),
             None => panic!(r#"no query for key: "{}""#, key),
         }
+    }
+}
+
+impl QueriesMap {
+    pub fn iter(&self) -> QueriesMapIter {
+        QueriesMapIter {
+            iter: self.queries.iter(),
+        }
+    }
+}
+
+pub struct QueriesMapIter<'a> {
+    iter: indexmap::map::Iter<'a, String, String>,
+}
+
+impl<'a> Iterator for QueriesMapIter<'a> {
+    type Item = (&'a str, &'a str);
+
+    fn next(&mut self) -> Option<(&'a str, &'a str)> {
+        self.iter.next().map(|(k, v)| (k.as_str(), v.as_str()))
     }
 }

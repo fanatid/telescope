@@ -1105,8 +1105,8 @@ dependencies = [
 
 [[package]]
 name = "rsyesql"
-version = "0.1.0"
-source = "git+https://github.com/fanatid/rsyesql#v0.1.0#9c3a484f76e997dbe1eca9429b2b21c9e03f647e"
+version = "0.2.1"
+source = "git+https://github.com/fanatid/rsyesql#v0.2.1#cf0e93edf2e162da433188ec6370c078a1ff6a94"
 dependencies = [
  "indexmap",
  "lazy_static",

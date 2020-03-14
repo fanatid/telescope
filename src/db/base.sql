@@ -17,11 +17,11 @@ CREATE TABLE {SCHEMA}.schema_info (
   chain text NOT NULL,
   version int2 NOT NULL CHECK (version > 0),
   extra jsonb NOT NULL,
-  stage text NOT NULL DEFAULT '#none'
+  stage text NOT NULL
 );
 
 -- name: schemaInfoInsert
-INSERT INTO {SCHEMA}.schema_info (coin, chain, version, extra) VALUES ($1, $2, $3, $4);
+INSERT INTO {SCHEMA}.schema_info (coin, chain, version, extra, stage) VALUES ($1, $2, $3, $4, $5);
 
 -- name: schemaInfoSelect
 SELECT coin, chain, version, extra, stage FROM {SCHEMA}.schema_info LIMIT 1;

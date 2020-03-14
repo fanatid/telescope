@@ -5,7 +5,11 @@ use crate::shutdown::Shutdown;
 use crate::AnyError;
 
 static DATABASE_VERSION: u16 = 1;
-static DATABASE_QUERIES: StaticQueries = &[];
+static DATABASE_QUERIES: StaticQueries = &[
+    ("create", include_str!("./sql/create.sql")),
+    ("transform", include_str!("./sql/transform.sql")),
+    ("indexer", include_str!("./sql/indexer.sql")),
+];
 
 macro_rules! add_basic_methods {
     ($name:ident) => {

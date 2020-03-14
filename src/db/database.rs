@@ -116,9 +116,20 @@ impl DataBase {
             tx.query(&queries["schemaInfoCreate"], &[]).await?;
             tx.query(
                 &queries["schemaInfoInsert"],
-                &[&self.coin, &self.chain, &(self.version as i16), &extra_data],
+                &[
+                    &self.coin,
+                    &self.chain,
+                    &(self.version as i16),
+                    &extra_data,
+                    &"#created",
+                ],
             )
             .await?;
+
+            // TODO: add pretty print (show how much ms spent for query)
+            for (_name, query) in self.queries["created"].iter() {
+                tx.query(query, &[]).await?;
+            }
 
             info!("[db] tables created");
         } else {
