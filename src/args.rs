@@ -63,6 +63,21 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
             .default_value("localhost:8000")
             .env("TELESCOPE_LISTEN_HTTP"),
     ];
+
+    // Indexer global shared args
+    let args_global_indexer = [
+        // Sync segment for debug
+        Arg::with_name("sync_segment")
+            .long("sync-segment")
+            .help("Sync only specified blocks. Syntax as Rust range: start..end / start..=end")
+            .validator(validate_sync_segment)
+            .value_name("segment")
+            .default_value("0..=latest")
+            .env("TELESCOPE_SYNC_SEGMENT"),
+    ];
+    // Client global shared args
+    let args_global_client = [];
+
     // Bitcoin shared args
     let args_bitcoin = [
         Arg::with_name("coin")
@@ -109,11 +124,17 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
             SubCommand::with_name("indexer")
                 .about("Transform blockchain client data to our database")
                 .settings(&settings_global)
-                .subcommands(vec![subcommand_bitcoin.clone().args(&args_bitcoin_indexer)]),
+                .subcommands(vec![subcommand_bitcoin
+                    .clone()
+                    .args(&args_global_indexer)
+                    .args(&args_bitcoin_indexer)]),
             SubCommand::with_name("client")
                 .about("API to transformed data in database")
                 .settings(&settings_global)
-                .subcommands(vec![subcommand_bitcoin.clone().args(&args_bitcoin_client)]),
+                .subcommands(vec![subcommand_bitcoin
+                    .clone()
+                    .args(&args_global_client)
+                    .args(&args_bitcoin_client)]),
         ])
         .get_matches()
 }
@@ -135,23 +156,8 @@ fn validate_addr(addr: String) -> ValidateResult {
     validate_transform_result(addrs)
 }
 
-fn validate_url(url: String) -> ValidateResult {
-    let parsed = Url::parse(&url);
-    validate_transform_result(parsed)
-}
-
-fn validate_url_postgres(url: String) -> ValidateResult {
-    let parsed = url.parse::<PgConfig>();
-    validate_transform_result(parsed)
-}
-
 fn validate_duration(value: String) -> ValidateResult {
     let parsed = parse_duration(&value);
-    validate_transform_result(parsed)
-}
-
-fn validate_u32(value: String) -> ValidateResult {
-    let parsed = value.parse::<usize>();
     validate_transform_result(parsed)
 }
 
@@ -170,4 +176,40 @@ fn validate_pg_schema(value: String) -> ValidateResult {
     }
 
     Ok(())
+}
+
+fn validate_sync_segment(value: String) -> ValidateResult {
+    let re = regex::Regex::new(r#"^(\d+)\.\.=?(\d+|latest)$"#).unwrap();
+    match re.captures(&value) {
+        Some(caps) => {
+            if let Err(error) = caps.get(1).unwrap().as_str().parse::<u32>() {
+                return Err(format!("`start` part is not valid: {}", error));
+            }
+
+            let end = caps.get(2).unwrap().as_str();
+            if end != "latest" {
+                if let Err(error) = end.parse::<u32>() {
+                    return Err(format!("`end` part is not valid: {}", error));
+                }
+            }
+
+            Ok(())
+        }
+        None => Err(format!("Invalid segment: {}", value)),
+    }
+}
+
+fn validate_u32(value: String) -> ValidateResult {
+    let parsed = value.parse::<usize>();
+    validate_transform_result(parsed)
+}
+
+fn validate_url(url: String) -> ValidateResult {
+    let parsed = Url::parse(&url);
+    validate_transform_result(parsed)
+}
+
+fn validate_url_postgres(url: String) -> ValidateResult {
+    let parsed = url.parse::<PgConfig>();
+    validate_transform_result(parsed)
 }
