@@ -1,16 +1,16 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use bb8::Pool;
 use bb8_postgres::PostgresConnectionManager;
 use futures::TryFutureExt;
-use humantime::parse_duration;
-use log::info;
+use humantime::{format_duration, parse_duration};
 use semver::{Version, VersionReq};
 use tokio_postgres::{Config, NoTls};
 
 use super::error::DataBaseError;
 use super::queries::{Queries, StaticQueries};
+use crate::logger::info;
 use crate::shutdown::Shutdown;
 use crate::AnyError;
 
@@ -126,9 +126,11 @@ impl DataBase {
             )
             .await?;
 
-            // TODO: add pretty print (show how much ms spent for query)
-            for (_name, query) in self.queries["created"].iter() {
+            for (name, query) in self.queries["create"].iter() {
+                let st = SystemTime::now();
                 tx.query(query, &[]).await?;
+                let elapsed = format_duration(st.elapsed().unwrap());
+                info!("[db] create.{} executed in {}", name, elapsed);
             }
 
             info!("[db] tables created");

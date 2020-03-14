@@ -5,6 +5,8 @@ use env_logger::{fmt, Builder, Env, Target};
 use log::{Level, Record};
 use serde_json::json;
 
+pub use log::{error, info};
+
 // Initialize simple logger: JSON to Stdout
 pub fn init() {
     let env = Env::default()

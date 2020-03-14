@@ -6,6 +6,7 @@ use tokio::time::delay_for;
 
 use super::bitcoind::Bitcoind;
 use super::database::IndexerDataBase;
+use crate::logger::info;
 use crate::shutdown::Shutdown;
 use crate::{AnyError, AppFutFromArgs};
 
@@ -47,7 +48,7 @@ impl Indexer {
             self.shutdown.is_recv().await?;
 
             let info = self.bitcoind.getblockchaininfo().await?;
-            log::info!("{}", info.bestblockhash);
+            info!("{}", info.bestblockhash);
 
             tokio::select! {
                 _ = delay_for(Duration::from_secs(1)) => {},

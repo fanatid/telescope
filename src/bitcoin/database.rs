@@ -33,5 +33,3 @@ add_basic_methods!(IndexerDataBase);
 pub struct IndexerDataBase {
     db: DataBase,
 }
-
-impl IndexerDataBase {}

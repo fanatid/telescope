@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use base64::write::EncoderWriter as Base64Encoder;
-use log::info;
 use regex::Regex;
 use semver::{Version, VersionReq};
 use url::Url;
@@ -12,6 +11,7 @@ use self::error::{BitcoindError, BitcoindResult};
 use self::json::ResponseBlockchainInfo;
 use self::rest::RESTClient;
 use self::rpc::RPCClient;
+use crate::logger::info;
 use crate::shutdown::Shutdown;
 
 pub mod error;

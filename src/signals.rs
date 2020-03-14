@@ -2,8 +2,9 @@ use std::pin::Pin;
 
 use futures::stream::Stream;
 use futures::task::{Context, Poll};
-use log::error;
 use tokio::signal::unix;
+
+use crate::logger::error;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ShutdownSignal {

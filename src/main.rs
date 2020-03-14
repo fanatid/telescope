@@ -54,7 +54,7 @@ fn main() {
         // We can not check that `error` is `ShutdownSignal`, because `Box<dyn Error>` loose info.
         // More over, ShutdownSignal can be sub-error, see BitcoindError as example.
         if format!("{:?}", error).find("ShutdownSignal").is_none() {
-            log::error!("{}", error);
+            logger::error!("{}", error);
             std::process::exit(1);
         }
     }

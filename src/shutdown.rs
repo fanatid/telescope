@@ -2,9 +2,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use futures::stream::StreamExt as _;
-use log::info;
 use tokio::sync::{Notify, RwLock};
 
+use crate::logger::info;
 use crate::signals::ShutdownSignals;
 
 // Shutdown signal like std::error::Error
