@@ -8,7 +8,7 @@ use super::bitcoind::Bitcoind;
 use super::database::IndexerDataBase;
 use crate::logger::info;
 use crate::shutdown::Shutdown;
-use crate::{AnyError, AppFutFromArgs};
+use crate::{AppFutFromArgs, EmptyResult};
 
 #[derive(Debug)]
 pub struct Indexer {
@@ -35,7 +35,7 @@ impl Indexer {
         }))
     }
 
-    async fn connect(&self) -> AnyError<()> {
+    async fn connect(&self) -> EmptyResult {
         tokio::try_join!(
             self.db.validate(&self.shutdown),
             self.bitcoind.validate(&self.shutdown).map_err(|e| e.into()),
@@ -43,7 +43,7 @@ impl Indexer {
         Ok(())
     }
 
-    async fn start(&mut self) -> AnyError<()> {
+    async fn start(&mut self) -> EmptyResult {
         loop {
             self.shutdown.is_recv().await?;
 

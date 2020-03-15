@@ -12,7 +12,7 @@ use super::error::DataBaseError;
 use super::queries::{Queries, StaticQueries};
 use crate::logger::info;
 use crate::shutdown::Shutdown;
-use crate::AnyError;
+use crate::EmptyResult;
 
 static BASE_QUERIES: StaticQueries = &[("base", include_str!("./base.sql"))];
 
@@ -67,14 +67,14 @@ impl DataBase {
         }
     }
 
-    pub async fn validate(&self, shutdown: &Arc<Shutdown>) -> AnyError<()> {
+    pub async fn validate(&self, shutdown: &Arc<Shutdown>) -> EmptyResult {
         tokio::select! {
             v = self.validate_version().and_then(|_| self.validate_schema()) => v,
             e = shutdown.wait() => Err(e.into()),
         }
     }
 
-    async fn validate_version(&self) -> AnyError<()> {
+    async fn validate_version(&self) -> EmptyResult {
         let version_query = &self.queries["base"]["selectVersion"];
         let version_req = VersionReq::parse("12.*").unwrap();
 
@@ -97,7 +97,7 @@ impl DataBase {
         }
     }
 
-    async fn validate_schema(&self) -> AnyError<()> {
+    async fn validate_schema(&self) -> EmptyResult {
         let queries = &self.queries["base"];
         let extra_data = serde_json::json!({});
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::db::{DataBase, StaticQueries};
 use crate::shutdown::Shutdown;
-use crate::AnyError;
+use crate::EmptyResult;
 
 static DATABASE_VERSION: u16 = 1;
 static DATABASE_QUERIES: StaticQueries = &[
@@ -20,7 +20,7 @@ macro_rules! add_basic_methods {
                 }
             }
 
-            pub async fn validate(&self, shutdown: &Arc<Shutdown>) -> AnyError<()> {
+            pub async fn validate(&self, shutdown: &Arc<Shutdown>) -> EmptyResult {
                 self.db.validate(shutdown).await
             }
         }
