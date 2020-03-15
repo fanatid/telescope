@@ -59,7 +59,7 @@ impl Indexer {
 
             // Create new status
             let mut status = IndexerStatus::default();
-            status.node.update(&self.bitcoind).await?;
+            status.update_node(&self.bitcoind).await?;
 
             // Read lock not block other futures, so we use it for comparison
             let status_self = self.status.read().await;
@@ -86,24 +86,15 @@ impl Indexer {
 
 #[derive(Default, Debug, PartialEq)]
 struct IndexerStatus {
-    pub node: IndexerStatusNode,
-    pub service: IndexerStatusService,
+    pub node_syncing_height: u32,
+    pub node_syncing_hash: String,
 }
 
-#[derive(Default, Debug, PartialEq)]
-struct IndexerStatusNode {
-    pub syncing_height: u32,
-    pub syncing_hash: String,
-}
-
-impl IndexerStatusNode {
-    pub async fn update(&mut self, bitcoind: &Bitcoind) -> EmptyResult {
+impl IndexerStatus {
+    pub async fn update_node(&mut self, bitcoind: &Bitcoind) -> EmptyResult {
         let info = bitcoind.getblockchaininfo().await?;
-        self.syncing_height = info.blocks;
-        self.syncing_hash = info.bestblockhash;
+        self.node_syncing_height = info.blocks;
+        self.node_syncing_hash = info.bestblockhash;
         Ok(())
     }
 }
-
-#[derive(Default, Debug, PartialEq)]
-struct IndexerStatusService {}
