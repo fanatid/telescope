@@ -1,11 +1,14 @@
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::stream::StreamExt as _;
 use tokio::sync::{Notify, RwLock};
+use tokio::time::delay_for;
 
 use crate::logger::info;
 use crate::signals::ShutdownSignals;
+use crate::EmptyResult;
 
 // Shutdown signal like std::error::Error
 #[derive(Debug)]
@@ -54,6 +57,13 @@ impl Shutdown {
         }
 
         ShutdownSignal {}
+    }
+
+    pub async fn delay_for(&self, duration: Duration) -> EmptyResult {
+        tokio::select! {
+            _ = delay_for(duration) => Ok(()),
+            e = self.wait() => Err(e.into()),
+        }
     }
 }
 

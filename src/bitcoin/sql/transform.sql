@@ -118,7 +118,7 @@ BEGIN
     SELECT
       *
     FROM
-      {SCHEMA}.transactions_draft
+      {SCHEMA}.transactions_initial
     WHERE
       block_height = blk_height
   LOOP
@@ -285,8 +285,8 @@ DROP FUNCTION {SCHEMA}.blocks_transform (int4);
 -- name: blocksProcessedDrop
 ALTER TABLE {SCHEMA}.blocks DROP COLUMN processed;
 
--- name: transactionsDraftDrop
-DROP TABLE {SCHEMA}.transactions_draft;
+-- name: transactionsInitialDrop
+DROP TABLE {SCHEMA}.transactions_initial;
 
 
 -- Fill stats from address history & unspent
