@@ -4,9 +4,9 @@ use std::time::{Duration, SystemTime};
 use futures::TryFutureExt as _;
 use tokio::sync::RwLock;
 
-use crate::logger::info;
 use super::bitcoind::Bitcoind;
 use super::database::IndexerDataBase;
+use crate::logger::info;
 use crate::shutdown::Shutdown;
 use crate::{AppFutFromArgs, EmptyResult};
 

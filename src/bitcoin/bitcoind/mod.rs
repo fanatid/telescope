@@ -96,7 +96,7 @@ impl Bitcoind {
             tokio::select! {
                 info = self.rpc.getblockchaininfo() => {
                     match info {
-                        Ok(_) => break,
+                        Ok(_) => return Ok(()),
                         Err(BitcoindError::ResultRPC(error)) => {
                             // Client warming up error code is "-28"
                             // https://github.com/bitcoin/bitcoin/pull/5007
@@ -120,8 +120,6 @@ impl Bitcoind {
                 e = shutdown.wait() => return Err(BitcoindError::Shutdown(e)),
             }
         }
-
-        Ok(())
     }
 
     async fn validate_chain(&self) -> BitcoindResult<()> {

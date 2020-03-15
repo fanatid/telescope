@@ -65,6 +65,17 @@ impl Shutdown {
             e = self.wait() => Err(e.into()),
         }
     }
+
+    // pub async fn run_fut<F, T, R, E>(&self, fut: F, transform: T) -> Result<R, E>
+    // where
+    //     F: std::future::Future<Output = Result<R, E>>,
+    //     T: Fn(ShutdownSignal) -> Result<R, E>,
+    // {
+    //     tokio::select! {
+    //         v = fut => v,
+    //         e = self.wait() => transform(e),
+    //     }
+    // }
 }
 
 pub fn subscribe() -> Arc<Shutdown> {
