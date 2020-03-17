@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 
 use super::bitcoind::Bitcoind;
 use super::database::IndexerDataBase;
+use crate::fixed_hash::H256;
 use crate::logger::info;
 use crate::shutdown::Shutdown;
 use crate::{AppFutFromArgs, EmptyResult};
@@ -87,7 +88,7 @@ impl Indexer {
 #[derive(Default, Debug, PartialEq)]
 struct IndexerStatus {
     pub node_syncing_height: u32,
-    pub node_syncing_hash: String,
+    pub node_syncing_hash: H256,
 }
 
 impl IndexerStatus {

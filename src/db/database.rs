@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use bb8::Pool;
 use bb8_postgres::PostgresConnectionManager;
-use futures::TryFutureExt;
+use futures::TryFutureExt as _;
 use humantime::{format_duration, parse_duration};
 use semver::{Version, VersionReq};
 use tokio_postgres::{Config, NoTls};

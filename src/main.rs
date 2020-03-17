@@ -3,6 +3,7 @@ extern crate quick_error;
 
 mod args;
 mod db;
+mod fixed_hash;
 mod logger;
 mod shutdown;
 mod signals;

@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::fixed_hash::H256;
+
 #[derive(Debug, Serialize)]
 pub struct Request<'a, 'b> {
     pub method: &'a str,
@@ -37,7 +39,8 @@ impl fmt::Display for ResponseError {
 pub struct ResponseBlockchainInfo {
     pub chain: String,
     pub blocks: u32,
-    pub bestblockhash: String,
+    #[serde(deserialize_with = "H256::deserialize_hex")]
+    pub bestblockhash: H256,
 }
 
 #[derive(Debug, Deserialize)]
