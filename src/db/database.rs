@@ -219,3 +219,26 @@ impl DataBase {
         Ok(heights)
     }
 }
+
+#[macro_export]
+macro_rules! db_add_basic_methods {
+    ($name:ident) => {
+        impl $name {
+            pub async fn validate(&self, shutdown: &Arc<Shutdown>) -> EmptyResult {
+                self.db.validate(shutdown).await
+            }
+
+            // pub async fn set_stage<S: Into<String>>(&self, name: S, progress: Option<f64>) {
+            //     self.db.set_stage(name, progress).await
+            // }
+
+            pub async fn get_stage(&self) -> (String, Option<f64>) {
+                self.db.get_stage().await
+            }
+
+            pub async fn get_skipped_block_heights(&self, start_height: u32) -> AnyError<Vec<u32>> {
+                self.db.get_skipped_block_heights(start_height).await
+            }
+        }
+    };
+}
