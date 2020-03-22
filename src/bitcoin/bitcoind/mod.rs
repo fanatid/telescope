@@ -8,9 +8,10 @@ use semver::{Version, VersionReq};
 use url::Url;
 
 use self::error::{BitcoindError, BitcoindResult};
-use self::json::ResponseBlockchainInfo;
+use self::json::{Block, BlockchainInfo};
 use self::rest::RESTClient;
 use self::rpc::RPCClient;
+use crate::fixed_hash::H256;
 use crate::logger::info;
 use crate::shutdown::Shutdown;
 
@@ -94,7 +95,7 @@ impl Bitcoind {
 
         loop {
             tokio::select! {
-                info = self.rpc.getblockchaininfo() => {
+                info = self.rpc.get_blockchain_info() => {
                     match info {
                         Ok(_) => return Ok(()),
                         Err(BitcoindError::ResultRPC(error)) => {
@@ -123,7 +124,7 @@ impl Bitcoind {
     }
 
     async fn validate_chain(&self) -> BitcoindResult<()> {
-        let info = self.rpc.getblockchaininfo().await?;
+        let info = self.rpc.get_blockchain_info().await?;
         if info.chain != self.chain {
             Err(BitcoindError::ClientInvalidX(
                 "chain".to_owned(),
@@ -136,7 +137,7 @@ impl Bitcoind {
     }
 
     async fn validate_version(&self) -> BitcoindResult<()> {
-        let info = self.rpc.getnetworkinfo().await?;
+        let info = self.rpc.get_network_info().await?;
 
         // Split useragent and version from strings like: "/Satoshi:0.19.0.1/"
         let re_split = Regex::new(r#"^/([a-zA-Z ]+):([0-9.]+)/$"#).unwrap();
@@ -195,8 +196,8 @@ impl Bitcoind {
     }
 
     async fn validate_clients_to_same_node(&self) -> BitcoindResult<()> {
-        let rpc_fut = self.rpc.getblockchaininfo();
-        let rest_fut = self.rest.getblockchaininfo();
+        let rpc_fut = self.rpc.get_blockchain_info();
+        let rest_fut = self.rest.get_blockchain_info();
         let (rpc, rest) = tokio::try_join!(rpc_fut, rest_fut)?;
         if rpc != rest {
             Err(BitcoindError::ClientMismatch)
@@ -205,7 +206,18 @@ impl Bitcoind {
         }
     }
 
-    pub async fn getblockchaininfo(&self) -> BitcoindResult<ResponseBlockchainInfo> {
-        self.rpc.getblockchaininfo().await
+    pub async fn get_blockchain_info(&self) -> BitcoindResult<BlockchainInfo> {
+        self.rpc.get_blockchain_info().await
+    }
+
+    pub async fn get_block_hash(&self, height: u32) -> BitcoindResult<Option<H256>> {
+        self.rpc.get_block_hash(height).await
+    }
+
+    pub async fn get_block_by_height(&self, height: u32) -> BitcoindResult<Option<Block>> {
+        match self.get_block_hash(height).await? {
+            Some(hash) => self.rest.get_block_by_hash(hash).await,
+            None => Ok(None),
+        }
     }
 }

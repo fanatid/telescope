@@ -10,7 +10,7 @@ INSERT INTO {SCHEMA}.blocks (
   $7, $8, $9, $10
 );
 
--- name: blocksSelectLatest
+-- name: blocksSelectBestInfo
 SELECT
   height, hash
 FROM
@@ -19,9 +19,6 @@ ORDER BY
   height DESC
 LIMIT
   1;
-
--- name: blocksSelectHeights
-SELECT height FROM {SCHEMA}.blocks ORDER BY height ASC;
 
 -- name: blocksDeleteByHeight
 DELETE FROM {SCHEMA}.blocks WHERE height = $1;

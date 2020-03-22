@@ -33,9 +33,9 @@ quick_error! {
         ResultNotFound {
             display("Requested object not found")
         }
-        // ResultMismatch {
-        //     display("Result object not match to requested")
-        // }
+        ResultMismatch {
+            display("Result object not match to requested")
+        }
         ClientInvalidX(x: String, actual: String, expected: String) {
             display(r#"Invalid client {}: "{}", expected: "{}""#, x, actual, expected)
         }

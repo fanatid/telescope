@@ -10,6 +10,7 @@ CREATE TABLE {SCHEMA}.blocks (
   prev_hash bytea NOT NULL,
   next_hash bytea,
   size int4 NOT NULL,
+  time timestamp without time zone NOT NULL,
   transactions_count int4 NOT NULL,
   inputs_count int4 NOT NULL,
   inputs_total {SCHEMA}.btc_value, -- `NOT NULL` will be added on transform

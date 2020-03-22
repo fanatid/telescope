@@ -3,11 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::{header, redirect, Client, ClientBuilder};
+use serde::Deserialize;
 use tokio::sync::Mutex;
 use url::Url;
 
 use super::error::{BitcoindError, BitcoindResult};
-use super::json::{Request, Response, ResponseBlockchainInfo, ResponseNetworkInfo};
+use super::json::{BlockchainInfo, NetworkInfo, Request, Response};
+use crate::fixed_hash::H256;
 
 pub struct RPCClient {
     client: Client,
@@ -101,11 +103,30 @@ impl RPCClient {
         }
     }
 
-    pub async fn getblockchaininfo(&self) -> BitcoindResult<ResponseBlockchainInfo> {
+    pub async fn get_network_info(&self) -> BitcoindResult<NetworkInfo> {
+        self.call("getnetworkinfo", None).await
+    }
+
+    pub async fn get_blockchain_info(&self) -> BitcoindResult<BlockchainInfo> {
         self.call("getblockchaininfo", None).await
     }
 
-    pub async fn getnetworkinfo(&self) -> BitcoindResult<ResponseNetworkInfo> {
-        self.call("getnetworkinfo", None).await
+    pub async fn get_block_hash(&self, height: u32) -> BitcoindResult<Option<H256>> {
+        #[derive(Debug, Deserialize)]
+        struct Response(#[serde(deserialize_with = "H256::deserialize_hex")] H256);
+
+        let params = [height.into()];
+        match self.call::<Response>("getblockhash", Some(&params)).await {
+            Ok(st) => Ok(Some(st.0)),
+            Err(BitcoindError::ResultRPC(error)) => {
+                // Block height out of range
+                if error.code == -8 {
+                    Ok(None)
+                } else {
+                    Err(BitcoindError::ResultRPC(error))
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 }

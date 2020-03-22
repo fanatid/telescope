@@ -69,10 +69,10 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
         // Sync segment for debug
         Arg::with_name("sync_segment")
             .long("sync-segment")
-            .help("Sync only specified blocks. Syntax as Rust range: start..end / start..=end")
+            .help("Sync only specified blocks. Range-like syntax: `start..end`, `x >= start` and `x <= end`. Special value: `latest`.")
             .validator(validate_sync_segment)
             .value_name("segment")
-            .default_value("0..=latest")
+            .default_value("0..latest")
             .env("TELESCOPE_SYNC_SEGMENT"),
     ];
     // Client global shared args
@@ -179,24 +179,8 @@ fn validate_pg_schema(value: String) -> ValidateResult {
 }
 
 fn validate_sync_segment(value: String) -> ValidateResult {
-    let re = regex::Regex::new(r#"^(\d+)\.\.=?(\d+|latest)$"#).unwrap();
-    match re.captures(&value) {
-        Some(caps) => {
-            if let Err(error) = caps.get(1).unwrap().as_str().parse::<u32>() {
-                return Err(format!("`start` part is not valid: {}", error));
-            }
-
-            let end = caps.get(2).unwrap().as_str();
-            if end != "latest" {
-                if let Err(error) = end.parse::<u32>() {
-                    return Err(format!("`end` part is not valid: {}", error));
-                }
-            }
-
-            Ok(())
-        }
-        None => Err(format!("Invalid segment: {}", value)),
-    }
+    let parsed = SyncSegment::parse(&value);
+    validate_transform_result(parsed)
 }
 
 fn validate_u32(value: String) -> ValidateResult {
@@ -212,4 +196,60 @@ fn validate_url(url: String) -> ValidateResult {
 fn validate_url_postgres(url: String) -> ValidateResult {
     let parsed = url.parse::<PgConfig>();
     validate_transform_result(parsed)
+}
+
+#[derive(Debug)]
+pub struct SyncSegment {
+    full: bool,
+    start: u32,
+    end: Option<u32>,
+}
+
+impl SyncSegment {
+    pub fn parse(value: &str) -> Result<(u32, Option<u32>), String> {
+        let mut parts = value.split("..");
+
+        let start = parts.next().expect("first item should always exists");
+        let start = match start.parse::<u32>() {
+            Ok(v) => v,
+            Err(_) => return Err(format!("`start` part is not valid: {}", start)),
+        };
+
+        let end = match parts.next() {
+            Some(s) => s,
+            None => return Err("`end` part is not exists".to_owned()),
+        };
+        let end = if end == "latest" {
+            None
+        } else {
+            Some(match end.parse::<u32>() {
+                Ok(v) => v,
+                Err(_) => return Err(format!("`end` part is not valid: {}", end)),
+            })
+        };
+
+        Ok((start, end))
+    }
+
+    pub fn from_args(args: &clap::ArgMatches<'_>) -> SyncSegment {
+        let value = args.value_of("sync_segment").unwrap();
+        let (start, end) = SyncSegment::parse(value).unwrap();
+        let full = start == 0 && end.is_none();
+        SyncSegment { full, start, end }
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.full
+    }
+
+    pub fn get_start(&self) -> u32 {
+        self.start
+    }
+
+    pub fn get_end(&self, node_best_height: u32) -> u32 {
+        match self.end {
+            Some(end) => end,
+            None => node_best_height,
+        }
+    }
 }

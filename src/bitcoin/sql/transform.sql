@@ -90,7 +90,7 @@ SELECT
 FROM
   {SCHEMA}.blocks;
 
--- name: blocksTransformCreate
+-- name: blocksTransformFnCreate
 CREATE OR REPLACE FUNCTION {SCHEMA}.blocks_transform (blk_height int4)
   RETURNS int4 AS
 $BODY$
@@ -129,10 +129,6 @@ BEGIN
     query_count := query_count + 1;
     FOR row IN
       SELECT
-        input_data::jsonb,
-        output_block_height,
-        output_txid,
-        output_vout,
         output_data::jsonb
       FROM
         {SCHEMA}.transactions_inputs_outputs
@@ -173,9 +169,7 @@ BEGIN
     query_count := query_count + 1;
     FOR row IN
       SELECT
-        input_block_height,
         input_txid,
-        input_vin,
         output_vout,
         output_data::jsonb
       FROM
@@ -276,10 +270,10 @@ BEGIN
 END;
 $BODY$ LANGUAGE plpgsql;
 
--- name: blocksTransformRun
+-- name: blocksTransformFnCall
 SELECT {SCHEMA}.blocks_transform($1) AS count;
 
--- name: blocksTransformDrop
+-- name: blocksTransformFnDrop
 DROP FUNCTION {SCHEMA}.blocks_transform (int4);
 
 -- name: blocksProcessedDrop
@@ -391,8 +385,8 @@ REFERENCES {SCHEMA}.transactions(txid) ON DELETE CASCADE;
 
 
 -- Triggers for automatically update `next_hash` in blocks.
--- name: blocksAfterInsertTriggerFunc
-CREATE FUNCTION {SCHEMA}.blocks_after_insert_trigger_func ()
+-- name: blocksAfterInsertTriggerFn
+CREATE FUNCTION {SCHEMA}.blocks_after_insert_trigger_fn ()
   RETURNS TRIGGER AS
 $BODY$
 BEGIN
@@ -412,10 +406,10 @@ CREATE TRIGGER blocks_after_insert_trigger
   ON {SCHEMA}.blocks
   FOR EACH ROW
   WHEN (NEW.height > 0)
-  EXECUTE PROCEDURE {SCHEMA}.blocks_after_insert_trigger_func();
+  EXECUTE PROCEDURE {SCHEMA}.blocks_after_insert_trigger_fn();
 
--- name: blocksBeforeDeleteTriggerFunc
-CREATE FUNCTION {SCHEMA}.blocks_before_delete_trigger_func ()
+-- name: blocksBeforeDeleteTriggerFn
+CREATE FUNCTION {SCHEMA}.blocks_before_delete_trigger_fn ()
   RETURNS TRIGGER AS
 $BODY$
 BEGIN
@@ -435,4 +429,4 @@ CREATE TRIGGER blocks_before_delete_trigger
   ON {SCHEMA}.blocks
   FOR EACH ROW
   WHEN (OLD.height > 0)
-  EXECUTE PROCEDURE {SCHEMA}.blocks_before_delete_trigger_func();
+  EXECUTE PROCEDURE {SCHEMA}.blocks_before_delete_trigger_fn();

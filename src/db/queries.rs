@@ -34,6 +34,11 @@ impl Queries {
             self.queries.insert(name, QueriesMap { queries: group });
         }
     }
+
+    #[inline]
+    pub fn get(&self, group: &str, name: &str) -> &str {
+        &self[group][name]
+    }
 }
 
 impl Index<&str> for Queries {
