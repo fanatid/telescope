@@ -1,10 +1,12 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use futures::future::TryFutureExt as _;
 use tokio::sync::RwLock;
 
-use super::bitcoind::Bitcoind;
+use super::bitcoind::{json::Block, Bitcoind};
 use super::database::IndexerDataBase;
 use crate::args::SyncSegment;
 use crate::error::CustomError;
@@ -90,12 +92,13 @@ impl Indexer {
 
     // Initial or catch-up sync
     async fn start_sync(&self) -> EmptyResult {
-        let mut heights = StartSyncBlockHeightsGenerator::from_indexer(&self).await?;
-        while let Some(height) = heights.next().await? {
-            match self.bitcoind.get_block_by_height(height).await? {
-                Some(block) => self.db.push_block(&block).await?,
-                None => panic!("No block on start sync for: {}", height),
-            };
+        let heights = StartSyncBlockHeightsGenerator::new(&self).await?;
+        let get_block = |height| -> Pin<Box<dyn Future<Output = AnyResult<Option<Block>>>>> {
+            Box::pin(async move { Ok(self.bitcoind.get_block_by_height(height).await?) })
+        };
+        let mut blocks = StartSyncBlocksGenerator::new(heights, &get_block);
+        while let Some(block) = blocks.next().await? {
+            self.db.push_block(&block).await?;
         }
 
         Ok(())
@@ -142,9 +145,7 @@ struct StartSyncBlockHeightsGenerator<'a> {
 }
 
 impl<'a> StartSyncBlockHeightsGenerator<'a> {
-    pub async fn from_indexer(
-        indexer: &'a Indexer,
-    ) -> AnyResult<StartSyncBlockHeightsGenerator<'a>> {
+    pub async fn new(indexer: &'a Indexer) -> AnyResult<StartSyncBlockHeightsGenerator<'a>> {
         // `#created` is for `initial_sync`, everything else for catch-up.
         let initial_sync = indexer.db.get_stage().await.0 == "#created";
 
@@ -203,5 +204,38 @@ impl<'a> StartSyncBlockHeightsGenerator<'a> {
         } else {
             None
         })
+    }
+}
+
+// Stream-like, iterator through all blocks for import with prefetch.
+struct StartSyncBlocksGenerator<'a, T> {
+    heights: StartSyncBlockHeightsGenerator<'a>,
+    #[allow(clippy::type_complexity)]
+    get_block: &'a dyn Fn(u32) -> Pin<Box<dyn Future<Output = AnyResult<Option<T>>> + 'a>>,
+}
+
+// TODO: impl prefetch
+impl<'a, T> StartSyncBlocksGenerator<'a, T> {
+    pub fn new<F>(
+        heights: StartSyncBlockHeightsGenerator<'a>,
+        get_block: &'a F,
+    ) -> StartSyncBlocksGenerator<'a, T>
+    where
+        F: Fn(u32) -> Pin<Box<dyn Future<Output = AnyResult<Option<T>>> + 'a>>,
+    {
+        StartSyncBlocksGenerator { heights, get_block }
+    }
+
+    pub async fn next(&mut self) -> AnyResult<Option<T>> {
+        match self.heights.next().await? {
+            Some(height) => match (self.get_block)(height).await? {
+                Some(block) => Ok(Some(block)),
+                None => {
+                    let msg = format!("No block on start sync for: {}", height);
+                    Err(CustomError::new(msg))
+                }
+            },
+            None => Ok(None),
+        }
     }
 }
