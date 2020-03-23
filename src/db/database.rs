@@ -14,7 +14,7 @@ use super::queries::{Queries, StaticQueries};
 use crate::args::SyncSegment;
 use crate::logger::info;
 use crate::shutdown::Shutdown;
-use crate::{AnyError, EmptyResult};
+use crate::{AnyResult, EmptyResult};
 
 static BASE_QUERIES: StaticQueries = &[
     ("base", include_str!("./sql/base.sql")),
@@ -199,7 +199,7 @@ impl DataBase {
     // initial sync, when some blocks can be skipped due to indexer restarts.
     // This function executed only once on sync startup and only for initial
     // sync stage.
-    pub async fn get_skipped_block_heights(&self, start_height: u32) -> AnyError<Vec<u32>> {
+    pub async fn get_skipped_block_heights(&self, start_height: u32) -> AnyResult<Vec<u32>> {
         let mut heights = vec![];
 
         let client = self.pool.get().await?;
@@ -236,7 +236,10 @@ macro_rules! db_add_basic_methods {
                 self.db.get_stage().await
             }
 
-            pub async fn get_skipped_block_heights(&self, start_height: u32) -> AnyError<Vec<u32>> {
+            pub async fn get_skipped_block_heights(
+                &self,
+                start_height: u32,
+            ) -> AnyResult<Vec<u32>> {
                 self.db.get_skipped_block_heights(start_height).await
             }
         }

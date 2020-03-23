@@ -1,17 +1,17 @@
-use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use futures::TryFutureExt as _;
+use futures::future::TryFutureExt as _;
 use tokio::sync::RwLock;
 
 use super::bitcoind::Bitcoind;
 use super::database::IndexerDataBase;
 use crate::args::SyncSegment;
+use crate::error::CustomError;
 use crate::fixed_hash::H256;
 use crate::logger::info;
 use crate::shutdown::Shutdown;
-use crate::{AppFutFromArgs, EmptyResult};
+use crate::{AnyResult, AppFutFromArgs, EmptyResult};
 
 #[derive(Debug)]
 pub struct Indexer {
@@ -41,6 +41,13 @@ impl Indexer {
         // Try connect first
         self.connect().await?;
 
+        // TODO: implement status updated with logging (and notifications in future)
+        // Update status before actually start anything
+        let mut status = self.status.write().await;
+        status.update_node_status(&self.bitcoind).await?;
+        drop(status); // Drop RwLockWriteGuard
+
+        // Run sync loops
         tokio::try_join!(self.start_status_update_loop(), self.start_sync(),)?;
         Ok(())
     }
@@ -84,91 +91,15 @@ impl Indexer {
 
     // Initial or catch-up sync
     async fn start_sync(&self) -> EmptyResult {
-        // `#created` is for `initial_sync`, everything else for catch-up
-        let initial_sync = self.db.get_stage().await.0 == "#created";
-
-        // Start height came from args, zero by default.
-        let start_height = self.sync_segment.get_start();
-
-        // Get best block height from db. If block exists in db, it's can not
-        // be lower than start height, so we check it.
-        let db_bestblock_info = self.db.get_bestblock_info().await?;
-        let db_best_height = db_bestblock_info.map_or_else(|| 0, |(height, _)| height + 1);
-        if db_bestblock_info.is_some() && db_best_height < start_height {
-            panic!(
-                "Best height from database ({}) can not be lower than start height: {}",
-                db_best_height, start_height
-            );
-        }
-        let zero_blocks = RefCell::new(db_bestblock_info.is_none());
-
-        // Get skipped heights from lowest height (which is height from args).
-        let skipped_heights = if initial_sync {
-            self.db.get_skipped_block_heights(start_height).await?
-        } else {
-            vec![]
-        };
-        let skipped_heights = RefCell::new(skipped_heights.into_iter());
-
-        // Get best height. Everything lower up to selected start height from
-        // args will be in `skipped_heights` if required.
-        let best_height = RefCell::new(std::cmp::max(start_height, db_best_height));
-
-        // Sync up to block depends from `latest` keyword, because sync process
-        // can be require a lot of time `end` block should be changed with
-        // every new generated block.
-        let get_end_height = || async {
-            let status = self.status.read().await;
-            self.sync_segment.get_end(status.node_syncing_height) - 3
-        };
-
-        // Iterator-like, return Option<u32>
-        // Have no idea, how handle next error, so RefCell.
-        // "returns a reference to a captured variable which escapes the closure body"
-        let get_next_block_height = || async {
-            let end_height = get_end_height().await;
-
-            if let Some(height) = skipped_heights.borrow_mut().next() {
-                if height <= end_height {
-                    return Some(height);
-                } else {
-                    panic!(
-                        "Skipped height in database ({}) can not be higher than end height: {}",
-                        height, end_height
-                    );
-                };
-            }
-
-            // If we have zero blocks, we return height 0.
-            // Otherwise, add 1 to current best height and return result.
-            let best_height = if *zero_blocks.borrow() {
-                *zero_blocks.borrow_mut() = false;
-                0
-            } else {
-                *best_height.borrow_mut() += 1;
-                *best_height.borrow()
-            };
-
-            // Like in iter, None if no more results
-            if best_height <= end_height {
-                Some(best_height)
-            } else {
-                None
-            }
-        };
-
-        loop {
-            let height = get_next_block_height().await;
-            if height.is_none() {
-                return Ok(());
-            }
-
-            let height = height.unwrap();
+        let mut heights = StartSyncBlockHeightsGenerator::from_indexer(&self).await?;
+        while let Some(height) = heights.next().await? {
             match self.bitcoind.get_block_by_height(height).await? {
                 Some(block) => self.db.push_block(&block).await?,
                 None => panic!("No block on start sync for: {}", height),
             };
         }
+
+        Ok(())
     }
 }
 
@@ -184,5 +115,77 @@ impl IndexerStatus {
         self.node_syncing_height = info.blocks;
         self.node_syncing_hash = info.bestblockhash;
         Ok(())
+    }
+}
+
+// Stream-like, iterator through all required block heights for import.
+struct StartSyncBlockHeightsGenerator<'a> {
+    indexer: &'a Indexer,
+    skipped_heights: std::vec::IntoIter<u32>,
+    next_height: u32,
+}
+
+impl<'a> StartSyncBlockHeightsGenerator<'a> {
+    pub async fn from_indexer(
+        indexer: &'a Indexer,
+    ) -> AnyResult<StartSyncBlockHeightsGenerator<'a>> {
+        // `#created` is for `initial_sync`, everything else for catch-up.
+        let initial_sync = indexer.db.get_stage().await.0 == "#created";
+
+        // Start height came from args (zero by default).
+        let start_height = indexer.sync_segment.get_start();
+
+        // Get best block height from db. If block exists in db, it's can not
+        // be lower than start height, so we check it.
+        let db_bestblock_info = indexer.db.get_bestblock_info().await?;
+        let db_next_height = db_bestblock_info.map_or_else(|| 0, |(height, _hash)| height + 1);
+        if db_bestblock_info.is_some() && db_next_height < start_height {
+            return Err(CustomError::new(format!(
+                "Next height ({}) based on best height from database can not be lower than start height: {}",
+                db_next_height, start_height,
+            )));
+        }
+
+        // Get skipped heights from lowest height (which is height from args).
+        let skipped_heights = if initial_sync {
+            indexer.db.get_skipped_block_heights(start_height).await?
+        } else {
+            vec![]
+        };
+
+        Ok(StartSyncBlockHeightsGenerator {
+            indexer,
+            skipped_heights: skipped_heights.into_iter(),
+            // Everything lower than selected height, but not imported will be in `skipped_heights`.
+            next_height: std::cmp::max(start_height, db_next_height),
+        })
+    }
+
+    pub async fn next(&mut self) -> AnyResult<Option<u32>> {
+        // Sync up to block depends from `latest` keyword, because sync process
+        // can be require a lot of time `end` block should be changed with
+        // every new generated block.
+        let node_height = self.indexer.status.read().await.node_syncing_height;
+        let end_height = self.indexer.sync_segment.get_end(node_height) - 3;
+
+        if let Some(height) = self.skipped_heights.next() {
+            if height <= end_height {
+                return Ok(Some(height));
+            } else {
+                return Err(CustomError::new(format!(
+                    "Skipped height in database ({}) can not be higher than end height: {}",
+                    height, end_height
+                )));
+            };
+        }
+
+        let height = self.next_height;
+        self.next_height += 1;
+
+        Ok(if height <= end_height {
+            Some(height)
+        } else {
+            None
+        })
     }
 }

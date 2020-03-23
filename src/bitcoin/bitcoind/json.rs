@@ -190,6 +190,7 @@ impl<'de> Deserialize<'de> for TransactionInput {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct TransactionOutput {
+    // Require `serde_json` with feature `arbitrary_precision`
     #[serde(deserialize_with = "de_vout_value")]
     pub value: String,
     #[serde(rename(deserialize = "scriptPubKey"))]

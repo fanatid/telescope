@@ -228,6 +228,10 @@ impl SyncSegment {
             })
         };
 
+        if end.is_some() && end.map(|v| v < start).unwrap() {
+            return Err("`end` part is greater than `start` part".to_owned());
+        }
+
         Ok((start, end))
     }
 

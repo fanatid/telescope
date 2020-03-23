@@ -4,7 +4,7 @@ use super::bitcoind::json::Block;
 use crate::db::{DataBase, StaticQueries};
 use crate::fixed_hash::H256;
 use crate::shutdown::Shutdown;
-use crate::{AnyError, EmptyResult};
+use crate::{AnyResult, EmptyResult};
 
 static DATABASE_VERSION: u16 = 1;
 static DATABASE_QUERIES: StaticQueries = &[
@@ -37,7 +37,7 @@ pub struct IndexerDataBase {
 
 impl IndexerDataBase {
     // Return `(height, hash)` for best block
-    pub async fn get_bestblock_info(&self) -> AnyError<Option<(u32, H256)>> {
+    pub async fn get_bestblock_info(&self) -> AnyResult<Option<(u32, H256)>> {
         let query = self.db.queries.get("indexer", "blocksSelectBestInfo");
         let client = self.db.pool.get().await?;
         let row = client.query_opt(query, &[]).await?;
@@ -48,7 +48,8 @@ impl IndexerDataBase {
         }))
     }
 
-    pub async fn push_block(&self, _block: &Block) -> AnyError<()> {
+    pub async fn push_block(&self, block: &Block) -> AnyResult<()> {
+        println!("Push block: {} => {}", block.height, block.hash);
         Ok(())
     }
 }

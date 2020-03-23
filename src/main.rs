@@ -3,6 +3,7 @@ extern crate quick_error;
 
 mod args;
 mod db;
+mod error;
 mod fixed_hash;
 mod logger;
 mod shutdown;
@@ -11,9 +12,10 @@ mod signals;
 // SubCommands
 mod bitcoin;
 
-type AnyError<T> = Result<T, Box<dyn std::error::Error>>;
-type EmptyResult = AnyError<()>;
-type AppFutFromArgs = AnyError<std::pin::Pin<Box<dyn std::future::Future<Output = EmptyResult>>>>;
+type AnyError = Box<dyn std::error::Error>;
+type AnyResult<T> = Result<T, AnyError>;
+type EmptyResult = AnyResult<()>;
+type AppFutFromArgs = AnyResult<std::pin::Pin<Box<dyn std::future::Future<Output = EmptyResult>>>>;
 
 fn build_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new()
