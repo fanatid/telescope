@@ -41,11 +41,10 @@ impl Indexer {
         // Try connect first
         self.connect().await?;
 
-        // TODO: implement status updated with logging (and notifications in future)
-        // Update status before actually start anything
-        let mut status = self.status.write().await;
+        // Initialize status through update before actually start anything.
+        let mut status = IndexerStatus::default();
         status.update_node_status(&self.bitcoind).await?;
-        drop(status); // Drop RwLockWriteGuard
+        self.update_status(status).await;
 
         // Run sync loops
         tokio::try_join!(self.start_status_update_loop(), self.start_sync(),)?;
@@ -62,6 +61,13 @@ impl Indexer {
         Ok(())
     }
 
+    async fn update_status(&self, status: IndexerStatus) {
+        // Read lock not require block other futures, so we use it for comparison
+        if *self.status.read().await != status {
+            self.status.write().await.merge(status);
+        }
+    }
+
     // Update bitcoind and service info in loop
     async fn start_status_update_loop(&self) -> EmptyResult {
         loop {
@@ -72,14 +78,7 @@ impl Indexer {
             // Create new status
             let mut status = IndexerStatus::default();
             status.update_node_status(&self.bitcoind).await?;
-
-            // Read lock not block other futures, so we use it for comparison
-            let status_self = self.status.read().await;
-            if *status_self != status {
-                info!("Update status to: {:?}", status);
-                drop(status_self); // Drop RwLockWriteGuard because otherwise we will create deadlock
-                *self.status.write().await = status;
-            }
+            self.update_status(status).await;
 
             // Sleep some time, if required
             let elapsed = ts.elapsed().unwrap();
@@ -103,7 +102,7 @@ impl Indexer {
     }
 }
 
-#[derive(Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq)]
 struct IndexerStatus {
     pub node_syncing_height: u32,
     pub node_syncing_hash: H256,
@@ -115,6 +114,23 @@ impl IndexerStatus {
         self.node_syncing_height = info.blocks;
         self.node_syncing_hash = info.bestblockhash;
         Ok(())
+    }
+
+    // pub async fn update_service_status(&mut self, indexer: &Indexer) -> EmptyResult { Ok(()) }
+
+    pub fn merge(&mut self, other: IndexerStatus) {
+        macro_rules! update_field {
+            ($dest:expr, $src:expr) => {
+                if $dest != $src {
+                    $dest = $src;
+                }
+            };
+        }
+
+        update_field!(self.node_syncing_height, other.node_syncing_height);
+        update_field!(self.node_syncing_hash, other.node_syncing_hash);
+
+        info!("Update status to: {:?}", other);
     }
 }
 
