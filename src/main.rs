@@ -12,7 +12,7 @@ mod signals;
 // SubCommands
 mod bitcoin;
 
-type AnyError = Box<dyn std::error::Error>;
+type AnyError = Box<dyn std::error::Error + Send + Sync>;
 type AnyResult<T> = Result<T, AnyError>;
 type EmptyResult = AnyResult<()>;
 type AppFutFromArgs = AnyResult<std::pin::Pin<Box<dyn std::future::Future<Output = EmptyResult>>>>;

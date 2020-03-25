@@ -198,7 +198,7 @@ fn validate_url_postgres(url: String) -> ValidateResult {
     validate_transform_result(parsed)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SyncSegment {
     full: bool,
     start: u32,

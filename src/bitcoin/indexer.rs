@@ -1,10 +1,11 @@
+use std::collections::LinkedList;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use futures::future::TryFutureExt as _;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, Mutex, RwLock};
 
 use super::bitcoind::{json::Block, Bitcoind};
 use super::database::IndexerDataBase;
@@ -19,8 +20,8 @@ use crate::{AnyResult, AppFutFromArgs, EmptyResult};
 pub struct Indexer {
     shutdown: Arc<Shutdown>,
     db: IndexerDataBase,
-    bitcoind: Bitcoind,
-    status: RwLock<IndexerStatus>,
+    bitcoind: Arc<Bitcoind>,
+    status: Arc<RwLock<IndexerStatus>>,
     sync_segment: SyncSegment,
 }
 
@@ -30,8 +31,8 @@ impl Indexer {
         let indexer = Indexer {
             shutdown,
             db: IndexerDataBase::from_args(args),
-            bitcoind: Bitcoind::from_args(args)?,
-            status: RwLock::new(IndexerStatus::default()),
+            bitcoind: Arc::new(Bitcoind::from_args(args)?),
+            status: Arc::new(RwLock::new(IndexerStatus::default())),
             sync_segment: SyncSegment::from_args(args),
         };
 
@@ -93,10 +94,15 @@ impl Indexer {
     // Initial or catch-up sync
     async fn start_sync(&self) -> EmptyResult {
         let heights = StartSyncBlockHeightsGenerator::new(&self).await?;
-        let get_block = |height| -> Pin<Box<dyn Future<Output = AnyResult<Option<Block>>>>> {
-            Box::pin(async move { Ok(self.bitcoind.get_block_by_height(height).await?) })
-        };
-        let mut blocks = StartSyncBlocksGenerator::new(heights, &get_block);
+
+        let bitcoind = Arc::clone(&self.bitcoind);
+        let get_block =
+            move |height| -> Pin<Box<dyn Future<Output = AnyResult<Option<Block>>> + Send>> {
+                let client = Arc::clone(&bitcoind);
+                Box::pin(async move { Ok(client.get_block_by_height(height).await?) })
+            };
+
+        let blocks = StartSyncBlocksGenerator::new(heights, get_block, 3);
         while let Some(block) = blocks.next().await? {
             self.db.push_block(&block).await?;
         }
@@ -138,19 +144,22 @@ impl IndexerStatus {
 }
 
 // Stream-like, iterator through all required block heights for import.
-struct StartSyncBlockHeightsGenerator<'a> {
-    indexer: &'a Indexer,
+struct StartSyncBlockHeightsGenerator {
+    status: Arc<RwLock<IndexerStatus>>,
+    sync_segment: SyncSegment,
     skipped_heights: std::vec::IntoIter<u32>,
     next_height: u32,
 }
 
-impl<'a> StartSyncBlockHeightsGenerator<'a> {
-    pub async fn new(indexer: &'a Indexer) -> AnyResult<StartSyncBlockHeightsGenerator<'a>> {
+impl StartSyncBlockHeightsGenerator {
+    pub async fn new(indexer: &Indexer) -> AnyResult<StartSyncBlockHeightsGenerator> {
+        let sync_segment = indexer.sync_segment.clone();
+
         // `#created` is for `initial_sync`, everything else for catch-up.
         let initial_sync = indexer.db.get_stage().await.0 == "#created";
 
         // Start height came from args (zero by default).
-        let start_height = indexer.sync_segment.get_start();
+        let start_height = sync_segment.get_start();
 
         // Get best block height from db. If block exists in db, it's can not
         // be lower than start height, so we check it.
@@ -171,7 +180,8 @@ impl<'a> StartSyncBlockHeightsGenerator<'a> {
         };
 
         Ok(StartSyncBlockHeightsGenerator {
-            indexer,
+            status: Arc::clone(&indexer.status),
+            sync_segment,
             skipped_heights: skipped_heights.into_iter(),
             // Everything lower than selected height, but not imported will be in `skipped_heights`.
             next_height: std::cmp::max(start_height, db_next_height),
@@ -182,8 +192,8 @@ impl<'a> StartSyncBlockHeightsGenerator<'a> {
         // Sync up to block depends from `latest` keyword, because sync process
         // can be require a lot of time `end` block should be changed with
         // every new generated block.
-        let node_height = self.indexer.status.read().await.node_syncing_height;
-        let end_height = self.indexer.sync_segment.get_end(node_height) - 3;
+        let node_height = self.status.read().await.node_syncing_height;
+        let end_height = self.sync_segment.get_end(node_height) - 3;
 
         if let Some(height) = self.skipped_heights.next() {
             if height <= end_height {
@@ -196,10 +206,11 @@ impl<'a> StartSyncBlockHeightsGenerator<'a> {
             };
         }
 
-        let height = self.next_height;
-        self.next_height += 1;
+        // Will continue return `None` while `end_height` will not be increased
+        Ok(if self.next_height <= end_height {
+            let height = self.next_height;
+            self.next_height += 1;
 
-        Ok(if height <= end_height {
             Some(height)
         } else {
             None
@@ -208,34 +219,90 @@ impl<'a> StartSyncBlockHeightsGenerator<'a> {
 }
 
 // Stream-like, iterator through all blocks for import with prefetch.
-struct StartSyncBlocksGenerator<'a, T> {
-    heights: StartSyncBlockHeightsGenerator<'a>,
+struct StartSyncBlocksGenerator<T> {
+    heights: Mutex<StartSyncBlockHeightsGenerator>,
     #[allow(clippy::type_complexity)]
-    get_block: &'a dyn Fn(u32) -> Pin<Box<dyn Future<Output = AnyResult<Option<T>>> + 'a>>,
+    get_block: Box<
+        dyn Fn(u32) -> Pin<Box<dyn Future<Output = AnyResult<Option<T>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
+    >,
+    blocks_tx: Mutex<broadcast::Sender<()>>,
+    blocks: Mutex<LinkedList<AnyResult<Option<T>>>>,
 }
 
-// TODO: impl prefetch
-impl<'a, T> StartSyncBlocksGenerator<'a, T> {
+impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
     pub fn new<F>(
-        heights: StartSyncBlockHeightsGenerator<'a>,
-        get_block: &'a F,
-    ) -> StartSyncBlocksGenerator<'a, T>
+        heights: StartSyncBlockHeightsGenerator,
+        get_block: F,
+        prefetch_size: u32,
+    ) -> Arc<StartSyncBlocksGenerator<T>>
     where
-        F: Fn(u32) -> Pin<Box<dyn Future<Output = AnyResult<Option<T>>> + 'a>>,
+        F: Fn(u32) -> Pin<Box<dyn Future<Output = AnyResult<Option<T>>> + Send>>
+            + Send
+            + Sync
+            + 'static,
     {
-        StartSyncBlocksGenerator { heights, get_block }
+        assert!(
+            prefetch_size > 0,
+            "StartSyncBlocksGenerator not work with zero prefetch size"
+        );
+
+        let gen = Arc::new(StartSyncBlocksGenerator {
+            heights: Mutex::new(heights),
+            get_block: Box::new(get_block),
+            blocks_tx: Mutex::new(broadcast::channel(128).0), // 128 should be enough
+            blocks: Mutex::new(LinkedList::new()),
+        });
+        for _ in 0..prefetch_size {
+            gen.prefetch();
+        }
+        gen
     }
 
-    pub async fn next(&mut self) -> AnyResult<Option<T>> {
-        match self.heights.next().await? {
-            Some(height) => match (self.get_block)(height).await? {
-                Some(block) => Ok(Some(block)),
-                None => {
-                    let msg = format!("No block on start sync for: {}", height);
-                    Err(CustomError::new(msg))
+    fn prefetch(self: &Arc<StartSyncBlocksGenerator<T>>) {
+        let self1 = Arc::clone(self);
+        let self2 = Arc::clone(self);
+        tokio::spawn(async move {
+            // In block we can use operator question mark operator
+            let fut = async move {
+                match self1.heights.lock().await.next().await? {
+                    Some(height) => match (self1.get_block)(height).await? {
+                        Some(block) => Ok(Some(block)),
+                        None => {
+                            let msg = format!("No block on start sync for: {}", height);
+                            Err(CustomError::new(msg).into())
+                        }
+                    },
+                    None => Ok(None),
                 }
-            },
-            None => Ok(None),
+            };
+
+            // Get block, push to list and send notification
+            let result = fut.await;
+            self2.blocks.lock().await.push_back(result);
+            let _ = self2.blocks_tx.lock().await.send(());
+        });
+    }
+
+    pub async fn next(self: &Arc<StartSyncBlocksGenerator<T>>) -> AnyResult<Option<T>> {
+        // Start fetch block for this request. We do not care if block already
+        // exists in list, if so this block will be for next function call.
+        self.prefetch();
+
+        // Subscribe before lock list in loop, otherwise we can be trapped.
+        let mut rx = self.blocks_tx.lock().await.subscribe();
+
+        // Try get, wait signal, repeat
+        loop {
+            // Try get block from list
+            if let Some(block) = self.blocks.lock().await.pop_front() {
+                return block;
+            }
+
+            // Wait signal and try get block again...
+            rx.recv().await.unwrap();
         }
     }
 }
