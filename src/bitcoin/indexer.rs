@@ -1,4 +1,4 @@
-use std::collections::LinkedList;
+use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -99,7 +99,7 @@ impl Indexer {
                 Box::pin(async move { Ok(client.get_block_by_height(height).await?) })
             };
 
-        let blocks = StartSyncBlocksGenerator::new(heights, get_block, 3);
+        let blocks = StartSyncBlocksGenerator::new(heights, get_block, 3).await;
         while let Some(block) = blocks.next().await? {
             self.db.push_block(&block).await?;
         }
@@ -225,11 +225,12 @@ struct StartSyncBlocksGenerator<T> {
             + 'static,
     >,
     blocks_tx: Mutex<broadcast::Sender<()>>,
-    blocks: Mutex<LinkedList<AnyResult<Option<T>>>>,
+    #[allow(clippy::type_complexity)]
+    blocks: Mutex<VecDeque<(u32, Option<AnyResult<Option<T>>>)>>,
 }
 
 impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
-    pub fn new<F>(
+    pub async fn new<F>(
         heights: StartSyncBlockHeightsGenerator,
         get_block: F,
         prefetch_size: u32,
@@ -249,53 +250,79 @@ impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
             heights: Mutex::new(heights),
             get_block: Box::new(get_block),
             blocks_tx: Mutex::new(broadcast::channel(128).0), // 128 should be enough
-            blocks: Mutex::new(LinkedList::new()),
+            blocks: Mutex::new(VecDeque::new()),
         });
         for _ in 0..prefetch_size {
-            gen.prefetch();
+            gen.prefetch().await;
         }
         gen
     }
 
-    fn prefetch(self: &Arc<StartSyncBlocksGenerator<T>>) {
-        let self1 = Arc::clone(self);
-        let self2 = Arc::clone(self);
-        tokio::spawn(async move {
-            // In block we can use operator question mark operator
-            let fut = async move {
-                match self1.heights.lock().await.next().await {
-                    Some(height) => match (self1.get_block)(height).await? {
+    async fn prefetch(self: &Arc<StartSyncBlocksGenerator<T>>) {
+        let mut blocks = self.blocks.lock().await;
+        if let Some(height) = self.heights.lock().await.next().await {
+            blocks.push_back((height, None));
+            // No needed, because not moved to spawn
+            // drop(blocks);
+
+            let self1 = Arc::clone(self);
+            tokio::spawn(async move {
+                let result = match (self1.get_block)(height).await {
+                    Ok(result) => match result {
                         Some(block) => Ok(Some(block)),
                         None => {
                             let msg = format!("No block on start sync for: {}", height);
-                            Err(CustomError::new(msg).into())
+                            Err(CustomError::new_any(msg))
                         }
                     },
-                    None => Ok(None),
-                }
-            };
+                    Err(e) => Err(e),
+                };
 
-            // Get block, push to list and send notification
-            let result = fut.await;
-            self2.blocks.lock().await.push_back(result);
-            let _ = self2.blocks_tx.lock().await.send(());
-        });
+                let mut blocks = self1.blocks.lock().await;
+                for block in blocks.iter_mut() {
+                    if block.0 == height {
+                        block.1 = Some(result);
+                        let _ = self1.blocks_tx.lock().await.send(());
+                        return;
+                    }
+                }
+
+                unreachable!("No item for block on start sync: {}", height);
+            });
+        }
     }
 
     pub async fn next(self: &Arc<StartSyncBlocksGenerator<T>>) -> AnyResult<Option<T>> {
         // Start fetch block for this request. We do not care if block already
         // exists in list, if so this block will be for next function call.
-        self.prefetch();
+        self.prefetch().await;
 
         // Subscribe before lock list in loop, otherwise we can be trapped.
         let mut rx = self.blocks_tx.lock().await.subscribe();
 
         // Try get, wait signal, repeat
         loop {
-            // Try get block from list
-            if let Some(block) = self.blocks.lock().await.pop_front() {
-                return block;
+            let mut blocks = self.blocks.lock().await;
+
+            // If list is empty, not more blocks
+            if blocks.is_empty() {
+                return Ok(None);
             }
+
+            // Try get block from list
+            let mut index = blocks.len();
+            for (i, (_height, result)) in blocks.iter().enumerate() {
+                if result.is_some() {
+                    index = i;
+                    break;
+                }
+            }
+            if let Some((_height, result)) = blocks.remove(index) {
+                return result.unwrap();
+            }
+
+            // drop blocks lock
+            drop(blocks);
 
             // Wait signal and try get block again...
             rx.recv().await.unwrap();

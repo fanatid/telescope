@@ -1,13 +1,21 @@
 use std::fmt;
 
+use crate::AnyError;
+
 #[derive(Debug)]
 pub struct CustomError {
     msg: String,
 }
 
 impl CustomError {
-    pub fn new<S: Into<String>>(msg: S) -> Box<CustomError> {
-        Box::new(CustomError { msg: msg.into() })
+    #[inline]
+    pub fn new<S: Into<String>>(msg: S) -> CustomError {
+        CustomError { msg: msg.into() }
+    }
+
+    #[inline]
+    pub fn new_any<S: Into<String>>(msg: S) -> AnyError {
+        Box::new(Self::new(msg)).into()
     }
 }
 
