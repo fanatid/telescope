@@ -9,7 +9,6 @@ use tokio::sync::{broadcast, Mutex, RwLock};
 
 use super::bitcoind::{json::Block, Bitcoind};
 use super::database::IndexerDataBase;
-use crate::args::SyncSegment;
 use crate::error::CustomError;
 use crate::fixed_hash::H256;
 use crate::logger::info;
@@ -22,7 +21,6 @@ pub struct Indexer {
     db: IndexerDataBase,
     bitcoind: Arc<Bitcoind>,
     status: Arc<RwLock<IndexerStatus>>,
-    sync_segment: SyncSegment,
 }
 
 impl Indexer {
@@ -32,8 +30,7 @@ impl Indexer {
             shutdown,
             db: IndexerDataBase::from_args(args),
             bitcoind: Arc::new(Bitcoind::from_args(args)?),
-            status: Arc::new(RwLock::new(IndexerStatus::default())),
-            sync_segment: SyncSegment::from_args(args),
+            status: Arc::new(RwLock::new(IndexerStatus::from_args(args))),
         };
 
         Ok(Box::pin(async move { indexer.start().await }))
@@ -115,9 +112,16 @@ impl Indexer {
 struct IndexerStatus {
     pub node_syncing_height: u32,
     pub node_syncing_hash: H256,
+    pub service_sync_from: u32,
 }
 
 impl IndexerStatus {
+    pub fn from_args(args: &clap::ArgMatches<'_>) -> IndexerStatus {
+        let mut status = IndexerStatus::default();
+        status.service_sync_from = args.value_of("sync_from").unwrap().parse().unwrap();
+        status
+    }
+
     pub async fn update_node_status(&mut self, bitcoind: &Bitcoind) -> EmptyResult {
         let info = bitcoind.get_blockchain_info().await?;
         self.node_syncing_height = info.blocks;
@@ -138,6 +142,7 @@ impl IndexerStatus {
 
         update_field!(self.node_syncing_height, other.node_syncing_height);
         update_field!(self.node_syncing_hash, other.node_syncing_hash);
+        // update_field!(self.service_sync_from, other.service_sync_from);
 
         info!("Update status to: {:?}", other);
     }
@@ -145,34 +150,26 @@ impl IndexerStatus {
 
 // Stream-like, iterator through all required block heights for import.
 struct StartSyncBlockHeightsGenerator {
+    finished: bool,
+    skipped_heights: Vec<u32>,
     status: Arc<RwLock<IndexerStatus>>,
-    sync_segment: SyncSegment,
-    skipped_heights: std::vec::IntoIter<u32>,
     next_height: u32,
 }
 
 impl StartSyncBlockHeightsGenerator {
     pub async fn new(indexer: &Indexer) -> AnyResult<StartSyncBlockHeightsGenerator> {
-        let sync_segment = indexer.sync_segment.clone();
+        // Get next block height from db.
+        let db_bestblock_info = indexer.db.get_bestblock_info().await?;
+        let db_next_height = db_bestblock_info.map_or_else(|| 0, |(height, _hash)| height + 1);
+
+        // Start height came from args, but stored in status (zero by default).
+        let status = Arc::clone(&indexer.status);
+        let start_height = status.read().await.service_sync_from;
 
         // `#created` is for `initial_sync`, everything else for catch-up.
         let initial_sync = indexer.db.get_stage().await.0 == "#created";
 
-        // Start height came from args (zero by default).
-        let start_height = sync_segment.get_start();
-
-        // Get best block height from db. If block exists in db, it's can not
-        // be lower than start height, so we check it.
-        let db_bestblock_info = indexer.db.get_bestblock_info().await?;
-        let db_next_height = db_bestblock_info.map_or_else(|| 0, |(height, _hash)| height + 1);
-        if db_bestblock_info.is_some() && db_next_height < start_height {
-            return Err(CustomError::new(format!(
-                "Next height ({}) based on best height from database can not be lower than start height: {}",
-                db_next_height, start_height,
-            )));
-        }
-
-        // Get skipped heights from lowest height (which is height from args).
+        // Get skipped heights from `start_height` (should be smallest height).
         let skipped_heights = if initial_sync {
             indexer.db.get_skipped_block_heights(start_height).await?
         } else {
@@ -180,41 +177,40 @@ impl StartSyncBlockHeightsGenerator {
         };
 
         Ok(StartSyncBlockHeightsGenerator {
-            status: Arc::clone(&indexer.status),
-            sync_segment,
-            skipped_heights: skipped_heights.into_iter(),
-            // Everything lower than selected height, but not imported will be in `skipped_heights`.
+            finished: false,
+            skipped_heights,
+            status,
+            // In case if `start_height` not zero (only for development).
             next_height: std::cmp::max(start_height, db_next_height),
         })
     }
 
-    pub async fn next(&mut self) -> AnyResult<Option<u32>> {
+    pub async fn next(&mut self) -> Option<u32> {
+        if self.finished {
+            return None;
+        }
+
+        // Return skipped height first, if have some
+        if let Some(height) = self.skipped_heights.pop() {
+            return Some(height);
+        }
+
         // Sync up to block depends from `latest` keyword, because sync process
         // can be require a lot of time `end` block should be changed with
         // every new generated block.
         let node_height = self.status.read().await.node_syncing_height;
-        let end_height = self.sync_segment.get_end(node_height) - 3;
+        let end_height = node_height - 3;
 
-        if let Some(height) = self.skipped_heights.next() {
-            if height <= end_height {
-                return Ok(Some(height));
-            } else {
-                return Err(CustomError::new(format!(
-                    "Skipped height in database ({}) can not be higher than end height: {}",
-                    height, end_height
-                )));
-            };
-        }
-
-        // Will continue return `None` while `end_height` will not be increased
-        Ok(if self.next_height <= end_height {
+        // Return Some only if `next_height` less or equal `end_height`
+        if self.next_height <= end_height {
             let height = self.next_height;
             self.next_height += 1;
 
             Some(height)
         } else {
+            self.finished = true;
             None
-        })
+        }
     }
 }
 
@@ -267,7 +263,7 @@ impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
         tokio::spawn(async move {
             // In block we can use operator question mark operator
             let fut = async move {
-                match self1.heights.lock().await.next().await? {
+                match self1.heights.lock().await.next().await {
                     Some(height) => match (self1.get_block)(height).await? {
                         Some(block) => Ok(Some(block)),
                         None => {

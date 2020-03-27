@@ -11,7 +11,6 @@ use tokio_postgres::{types::ToSql, Config, NoTls};
 
 use super::error::DataBaseError;
 use super::queries::{Queries, StaticQueries};
-use crate::args::SyncSegment;
 use crate::logger::info;
 use crate::shutdown::Shutdown;
 use crate::{AnyResult, EmptyResult};
@@ -26,7 +25,7 @@ pub struct DataBase {
     coin: String,
     chain: String,
     version: u16,
-    sync_segment: SyncSegment,
+    sync_from: u32,
     stage: RwLock<(String, Option<f64>)>,
 
     pub queries: Queries,
@@ -69,7 +68,7 @@ impl DataBase {
             coin: coin.to_owned(),
             chain: chain.to_owned(),
             version,
-            sync_segment: SyncSegment::from_args(args),
+            sync_from: args.value_of("sync_from").unwrap().parse().unwrap(),
             stage: RwLock::new(("#none".to_owned(), None)),
             queries,
             pool,
@@ -109,7 +108,7 @@ impl DataBase {
     async fn validate_schema(&self) -> EmptyResult {
         let queries = &self.queries["base"];
         let extra_data = serde_json::json!({
-            "sync_segment": !self.sync_segment.is_full(),
+            "sync_from": self.sync_from,
         });
 
         let mut client = self.pool.get().await?;
