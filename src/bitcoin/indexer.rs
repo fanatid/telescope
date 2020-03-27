@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -132,10 +132,13 @@ impl IndexerStatus {
     // pub async fn update_service_status(&mut self, indexer: &Indexer) -> EmptyResult { Ok(()) }
 
     pub fn merge(&mut self, other: IndexerStatus) {
+        let mut changed = false;
+
         macro_rules! update_field {
             ($dest:expr, $src:expr) => {
                 if $dest != $src {
                     $dest = $src;
+                    changed = true;
                 }
             };
         }
@@ -144,7 +147,9 @@ impl IndexerStatus {
         update_field!(self.node_syncing_hash, other.node_syncing_hash);
         // update_field!(self.service_sync_from, other.service_sync_from);
 
-        info!("Update status to: {:?}", other);
+        if changed {
+            info!("Update status to: {:?}", other);
+        }
     }
 }
 
@@ -225,8 +230,7 @@ struct StartSyncBlocksGenerator<T> {
             + 'static,
     >,
     blocks_tx: Mutex<broadcast::Sender<()>>,
-    #[allow(clippy::type_complexity)]
-    blocks: Mutex<VecDeque<(u32, Option<AnyResult<Option<T>>>)>>,
+    blocks: Mutex<HashMap<u32, Option<AnyResult<Option<T>>>>>,
 }
 
 impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
@@ -250,7 +254,7 @@ impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
             heights: Mutex::new(heights),
             get_block: Box::new(get_block),
             blocks_tx: Mutex::new(broadcast::channel(128).0), // 128 should be enough
-            blocks: Mutex::new(VecDeque::new()),
+            blocks: Mutex::new(HashMap::new()),
         });
         for _ in 0..prefetch_size {
             gen.prefetch().await;
@@ -261,7 +265,9 @@ impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
     async fn prefetch(self: &Arc<StartSyncBlocksGenerator<T>>) {
         let mut blocks = self.blocks.lock().await;
         if let Some(height) = self.heights.lock().await.next().await {
-            blocks.push_back((height, None));
+            if blocks.insert(height, None).is_some() {
+                unreachable!("Fetching block duplicating for height: {}", height);
+            }
             // No needed, because not moved to spawn
             // drop(blocks);
 
@@ -279,15 +285,11 @@ impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
                 };
 
                 let mut blocks = self1.blocks.lock().await;
-                for block in blocks.iter_mut() {
-                    if block.0 == height {
-                        block.1 = Some(result);
-                        let _ = self1.blocks_tx.lock().await.send(());
-                        return;
-                    }
+                if blocks.insert(height, Some(result)).is_none() {
+                    unreachable!("No item for block on start sync: {}", height);
                 }
 
-                unreachable!("No item for block on start sync: {}", height);
+                let _ = self1.blocks_tx.lock().await.send(());
             });
         }
     }
@@ -310,15 +312,13 @@ impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
             }
 
             // Try get block from list
-            let mut index = blocks.len();
-            for (i, (_height, result)) in blocks.iter().enumerate() {
-                if result.is_some() {
-                    index = i;
-                    break;
-                }
-            }
-            if let Some((_height, result)) = blocks.remove(index) {
-                return result.unwrap();
+            let valid_height = blocks
+                .iter()
+                .filter(|(_key, value)| value.is_some())
+                .map(|(key, _value)| *key)
+                .min();
+            if let Some(height) = valid_height {
+                return blocks.remove(&height).unwrap().unwrap();
             }
 
             // drop blocks lock
