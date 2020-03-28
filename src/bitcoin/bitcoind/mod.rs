@@ -11,7 +11,6 @@ use self::error::{BitcoindError, BitcoindResult};
 use self::json::{Block, BlockchainInfo};
 use self::rest::RESTClient;
 use self::rpc::RPCClient;
-use crate::fixed_hash::H256;
 use crate::logger::info;
 use crate::shutdown::Shutdown;
 
@@ -210,12 +209,8 @@ impl Bitcoind {
         self.rpc.get_blockchain_info().await
     }
 
-    pub async fn get_block_hash(&self, height: u32) -> BitcoindResult<Option<H256>> {
-        self.rpc.get_block_hash(height).await
-    }
-
     pub async fn get_block_by_height(&self, height: u32) -> BitcoindResult<Option<Block>> {
-        match self.get_block_hash(height).await? {
+        match self.rpc.get_block_hash(height).await? {
             Some(hash) => self.rest.get_block_by_hash(hash).await,
             None => Ok(None),
         }

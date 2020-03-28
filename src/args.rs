@@ -5,7 +5,9 @@ use humantime::parse_duration;
 use tokio_postgres::Config as PgConfig;
 use url::Url;
 
-pub fn get_args<'a>() -> ArgMatches<'a> {
+// warning: explicit lifetimes given in parameter types where they could be elided (or replaced with `'_` if needed by type declaration)
+#[allow(clippy::needless_lifetimes)]
+pub fn get_args<'a>(num_cpus: &'a str) -> ArgMatches<'a> {
     let version = include_str!("./args.rs-version").trim();
 
     // Settings, global and leaf
@@ -43,7 +45,7 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
         Arg::with_name("postgres_pool_size")
             .long("postgres-pool-size")
             .help("PostgreSQL connections pool size")
-            .validator(validate_u32)
+            .validator(validate_u32_gt0)
             .value_name("number")
             .default_value("10")
             .env("TELESCOPE_POSTGRES_POOL_SIZE"),
@@ -70,10 +72,18 @@ pub fn get_args<'a>() -> ArgMatches<'a> {
         Arg::with_name("sync_from")
             .long("sync-from")
             .help("Sync only from specified block (only for development)")
-            .validator(validate_u32)
+            .validator(validate_u32_gt0)
             .value_name("block")
             .default_value("0")
             .env("TELESCOPE_SYNC_FROM"),
+        // On initial stage we can import blocks parallel
+        Arg::with_name("sync_threads")
+            .long("sync-threads")
+            .help("Use N threads for blocks processing on initial sync")
+            .validator(validate_u32_gt0)
+            .value_name("threads")
+            .default_value(num_cpus)
+            .env("TELESCOPE_SYNC_THREADS"),
     ];
     // Client global shared args
     let args_global_client = [];
@@ -178,9 +188,17 @@ fn validate_pg_schema(value: String) -> ValidateResult {
     Ok(())
 }
 
-fn validate_u32(value: String) -> ValidateResult {
-    let parsed = value.parse::<u32>();
-    validate_transform_result(parsed)
+fn validate_u32_gt0(value: String) -> ValidateResult {
+    match value.parse::<u32>() {
+        Ok(v) => {
+            if v > 0 {
+                Ok(())
+            } else {
+                Err("Value should be greater than zero".to_owned())
+            }
+        }
+        Err(e) => Err(format!("{}", e)),
+    }
 }
 
 fn validate_url(url: String) -> ValidateResult {

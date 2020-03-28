@@ -30,7 +30,8 @@ fn build_runtime() -> tokio::runtime::Runtime {
 fn main() {
     logger::init();
 
-    let args = args::get_args();
+    let num_cpus_str = &num_cpus::get().to_string();
+    let args = args::get_args(num_cpus_str);
     let mut runtime = build_runtime();
 
     let main_fut = async move {

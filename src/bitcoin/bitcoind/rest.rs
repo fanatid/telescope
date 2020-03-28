@@ -89,6 +89,7 @@ impl RESTClient {
             return Err(BitcoindError::ResultRest(status_code, msg));
         }
 
+        // How much time parse take? Do we need `spawn_blocking` for this?
         let parsed = serde_json::from_slice(&body);
         let block: Block = parsed.map_err(BitcoindError::ResponseParse)?;
         if block.hash != hash {

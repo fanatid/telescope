@@ -15,12 +15,14 @@ use crate::logger::info;
 use crate::shutdown::Shutdown;
 use crate::{AnyResult, AppFutFromArgs, EmptyResult};
 
+// Remove Arc for fields, use Arc for Indexer itself?
 #[derive(Debug)]
 pub struct Indexer {
     shutdown: Arc<Shutdown>,
-    db: IndexerDataBase,
+    db: Arc<IndexerDataBase>,
     bitcoind: Arc<Bitcoind>,
     status: Arc<RwLock<IndexerStatus>>,
+    sync_threads: u32,
 }
 
 impl Indexer {
@@ -28,9 +30,10 @@ impl Indexer {
         // create indexer
         let indexer = Indexer {
             shutdown,
-            db: IndexerDataBase::from_args(args),
+            db: Arc::new(IndexerDataBase::from_args(args)),
             bitcoind: Arc::new(Bitcoind::from_args(args)?),
             status: Arc::new(RwLock::new(IndexerStatus::from_args(args))),
+            sync_threads: args.value_of("sync_threads").unwrap().parse().unwrap(),
         };
 
         Ok(Box::pin(async move { indexer.start().await }))
@@ -90,6 +93,9 @@ impl Indexer {
 
     // Initial or catch-up sync
     async fn start_sync(&self) -> EmptyResult {
+        // `#created` is for `initial_sync`, everything else for catch-up.
+        let initial_sync = self.db.get_stage().await.0 == "#created";
+
         let heights = StartSyncBlockHeightsGenerator::new(&self).await?;
 
         let bitcoind = Arc::clone(&self.bitcoind);
@@ -99,9 +105,25 @@ impl Indexer {
                 Box::pin(async move { Ok(client.get_block_by_height(height).await?) })
             };
 
-        let blocks = StartSyncBlocksGenerator::new(heights, get_block, 3).await;
-        while let Some(block) = blocks.next().await? {
-            self.db.push_block(&block).await?;
+        let prefetch_size = self.sync_threads + 2;
+        let blocks = StartSyncBlocksGenerator::new(heights, get_block, prefetch_size).await;
+
+        let mut tasks = vec![];
+
+        let jobs = if initial_sync { 1 } else { self.sync_threads };
+        for _ in 0..jobs {
+            let bblocks = Arc::clone(&blocks);
+            let db = Arc::clone(&self.db);
+            tasks.push(tokio::spawn(async move {
+                while let Some(block) = bblocks.next().await? {
+                    db.push_block(&block).await?;
+                }
+                Ok::<(), crate::AnyError>(())
+            }));
+        }
+
+        for task in tasks.iter_mut() {
+            let _ = task.await?;
         }
 
         Ok(())
