@@ -4,7 +4,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use futures::future::TryFutureExt as _;
+use futures::future::{maybe_done, poll_fn, BoxFuture, TryFutureExt as _};
+use futures::task::Poll;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
 use super::bitcoind::{json::Block, Bitcoind};
@@ -13,7 +14,7 @@ use crate::error::CustomError;
 use crate::fixed_hash::H256;
 use crate::logger::info;
 use crate::shutdown::Shutdown;
-use crate::{AnyResult, AppFutFromArgs, EmptyResult};
+use crate::{AnyError, AnyResult, AppFutFromArgs, EmptyResult};
 
 // Remove Arc for fields, use Arc for Indexer itself?
 #[derive(Debug)]
@@ -99,11 +100,10 @@ impl Indexer {
         let heights = StartSyncBlockHeightsGenerator::new(&self).await?;
 
         let bitcoind = Arc::clone(&self.bitcoind);
-        let get_block =
-            move |height| -> Pin<Box<dyn Future<Output = AnyResult<Option<Block>>> + Send>> {
-                let client = Arc::clone(&bitcoind);
-                Box::pin(async move { Ok(client.get_block_by_height(height).await?) })
-            };
+        let get_block = move |height| -> BoxFuture<'_, AnyResult<Option<Block>>> {
+            let client = Arc::clone(&bitcoind);
+            Box::pin(async move { Ok(client.get_block_by_height(height).await?) })
+        };
 
         let prefetch_size = self.sync_threads + 2;
         let blocks = StartSyncBlocksGenerator::new(heights, get_block, prefetch_size).await;
@@ -114,19 +114,35 @@ impl Indexer {
         for _ in 0..jobs {
             let bblocks = Arc::clone(&blocks);
             let db = Arc::clone(&self.db);
-            tasks.push(tokio::spawn(async move {
+            tasks.push(maybe_done(tokio::spawn(async move {
                 while let Some(block) = bblocks.next().await? {
                     db.push_block(&block).await?;
                 }
-                Ok::<(), crate::AnyError>(())
-            }));
+                Ok::<(), AnyError>(())
+            })));
         }
 
-        for task in tasks.iter_mut() {
-            let _ = task.await?;
-        }
+        poll_fn(move |cx| {
+            let mut is_pending = false;
 
-        Ok(())
+            for task in tasks.iter_mut() {
+                let mut fut = unsafe { Pin::new_unchecked(task) };
+
+                if fut.as_mut().poll(cx).is_pending() {
+                    is_pending = true;
+                } else if fut.as_mut().output_mut().unwrap().is_err() {
+                    let err = fut.as_mut().take_output().unwrap().err().unwrap();
+                    return Poll::Ready(Err(err.into()));
+                }
+            }
+
+            if is_pending {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(()))
+            }
+        })
+        .await
     }
 }
 
@@ -245,12 +261,7 @@ impl StartSyncBlockHeightsGenerator {
 struct StartSyncBlocksGenerator<T> {
     heights: Mutex<StartSyncBlockHeightsGenerator>,
     #[allow(clippy::type_complexity)]
-    get_block: Box<
-        dyn Fn(u32) -> Pin<Box<dyn Future<Output = AnyResult<Option<T>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
-    >,
+    get_block: Box<dyn Fn(u32) -> BoxFuture<'static, AnyResult<Option<T>>> + Send + Sync + 'static>,
     blocks_tx: Mutex<broadcast::Sender<()>>,
     blocks: Mutex<HashMap<u32, Option<AnyResult<Option<T>>>>>,
 }
@@ -262,10 +273,7 @@ impl<T: Send + 'static> StartSyncBlocksGenerator<T> {
         prefetch_size: u32,
     ) -> Arc<StartSyncBlocksGenerator<T>>
     where
-        F: Fn(u32) -> Pin<Box<dyn Future<Output = AnyResult<Option<T>>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(u32) -> BoxFuture<'static, AnyResult<Option<T>>> + Send + Sync + 'static,
     {
         assert!(
             prefetch_size > 0,

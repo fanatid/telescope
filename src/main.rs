@@ -15,7 +15,7 @@ mod bitcoin;
 type AnyError = Box<dyn std::error::Error + Send + Sync>;
 type AnyResult<T> = Result<T, AnyError>;
 type EmptyResult = AnyResult<()>;
-type AppFutFromArgs = AnyResult<std::pin::Pin<Box<dyn std::future::Future<Output = EmptyResult>>>>;
+type AppFutFromArgs = AnyResult<futures::future::LocalBoxFuture<'static, EmptyResult>>;
 
 fn build_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new()
