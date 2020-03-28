@@ -131,7 +131,7 @@ impl Indexer {
                 if fut.as_mut().poll(cx).is_pending() {
                     is_pending = true;
                 } else if fut.as_mut().output_mut().unwrap().is_err() {
-                    let err = fut.as_mut().take_output().unwrap().err().unwrap();
+                    let err = fut.as_mut().take_output().unwrap().unwrap_err();
                     return Poll::Ready(Err(err.into()));
                 }
             }
