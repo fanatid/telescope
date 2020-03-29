@@ -17,7 +17,7 @@ macro_rules! impl_serde_hex {
                 struct Visitor;
 
                 impl<'de> de::Visitor<'de> for Visitor {
-                    type Value = H256;
+                    type Value = $name;
 
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                         write!(formatter, "a hex encoded string with len 64")
@@ -39,7 +39,7 @@ macro_rules! impl_serde_hex {
             where
                 D: Deserializer<'de>,
             {
-                H256::deserialize_hex(deserializer).map(Some)
+                $name::deserialize_hex(deserializer).map(Some)
             }
         }
     };
