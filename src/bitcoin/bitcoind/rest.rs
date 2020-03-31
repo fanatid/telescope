@@ -89,12 +89,10 @@ impl RESTClient {
             return Err(BitcoindError::ResultRest(status_code, msg));
         }
 
-        // Parse can take up to 700ms (and more), so parse in dedicated thread
-        let block: Block = tokio::task::spawn_blocking(move || {
-            serde_json::from_slice(&body).map_err(BitcoindError::ResponseParse)
-        })
-        .await
-        .map_err(BitcoindError::ResponseParseJoin)??;
+        // In `release` can take up to 60ms (and more), for `debug` ~10x more time comapre to `release`.
+        // See also https://github.com/fanatid/bitcoin-rust-learning
+        let parsed = serde_json::from_slice(&body);
+        let block: Block = parsed.map_err(BitcoindError::ResponseParse)?;
 
         // Check that received block match to requested
         if block.hash != hash {

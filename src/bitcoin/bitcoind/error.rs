@@ -1,6 +1,5 @@
 use reqwest::Error as ReqwestError;
 use serde_json::Error as SerdeError;
-use tokio::task::JoinError;
 use url::ParseError as UrlParseError;
 
 use super::json::ResponseError;
@@ -21,9 +20,6 @@ quick_error! {
         }
         ResponseParse(err: SerdeError) {
             display("Invalid JSON response ({})", err)
-        }
-        ResponseParseJoin(err: JoinError) {
-            display("{}", err)
         }
         NonceMismatch {
             display("Nonce mismatch")

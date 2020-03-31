@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use url::Url;
 
 use super::error::{BitcoindError, BitcoindResult};
-use super::json::{BlockchainInfo, NetworkInfo, Request, Response};
+use super::json::{Block, BlockchainInfo, NetworkInfo, Request, Response};
 use crate::fixed_hash::H256;
 
 pub struct RPCClient {
@@ -121,6 +121,28 @@ impl RPCClient {
             Err(BitcoindError::ResultRPC(error)) => {
                 // Block height out of range
                 if error.code == -8 {
+                    Ok(None)
+                } else {
+                    Err(BitcoindError::ResultRPC(error))
+                }
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub async fn get_block_by_hash(&self, hash: H256) -> BitcoindResult<Option<Block>> {
+        let params = [hex::encode(hash).into(), 2.into()];
+        match self.call::<Block>("getblock", Some(&params)).await {
+            Ok(block) => {
+                if block.hash == hash {
+                    Ok(Some(block))
+                } else {
+                    Err(BitcoindError::ResultMismatch)
+                }
+            }
+            Err(BitcoindError::ResultRPC(error)) => {
+                // Block not found
+                if error.code == -5 {
                     Ok(None)
                 } else {
                     Err(BitcoindError::ResultRPC(error))

@@ -28,7 +28,7 @@ pub struct Bitcoind {
     coin: String,
     chain: String,
 
-    rest: RESTClient,
+    rest: Option<RESTClient>,
     rpc: RPCClient,
 }
 
@@ -42,11 +42,17 @@ impl Bitcoind {
         // Parse URL
         let (url, auth) = Bitcoind::parse_url(url)?;
 
+        // We use REST client only for some coins
+        let rest = match coin.as_str() {
+            "bitcoin" => None,
+            _ => Some(RESTClient::new(url.clone())?),
+        };
+
         // Instance
         Ok(Bitcoind {
             coin,
             chain,
-            rest: RESTClient::new(url.clone())?,
+            rest,
             rpc: RPCClient::new(url, auth)?,
         })
     }
@@ -195,14 +201,16 @@ impl Bitcoind {
     }
 
     async fn validate_clients_to_same_node(&self) -> BitcoindResult<()> {
-        let rpc_fut = self.rpc.get_blockchain_info();
-        let rest_fut = self.rest.get_blockchain_info();
-        let (rpc, rest) = tokio::try_join!(rpc_fut, rest_fut)?;
-        if rpc != rest {
-            Err(BitcoindError::ClientMismatch)
-        } else {
-            Ok(())
+        if let Some(ref rest) = self.rest {
+            let rpc_fut = self.rpc.get_blockchain_info();
+            let rest_fut = rest.get_blockchain_info();
+            let (rpc, rest) = tokio::try_join!(rpc_fut, rest_fut)?;
+            if rpc != rest {
+                return Err(BitcoindError::ClientMismatch);
+            }
         }
+
+        Ok(())
     }
 
     pub async fn get_blockchain_info(&self) -> BitcoindResult<BlockchainInfo> {
@@ -211,7 +219,10 @@ impl Bitcoind {
 
     pub async fn get_block_by_height(&self, height: u32) -> BitcoindResult<Option<Block>> {
         match self.rpc.get_block_hash(height).await? {
-            Some(hash) => self.rest.get_block_by_hash(hash).await,
+            Some(hash) => match self.rest {
+                Some(ref rest) => rest.get_block_by_hash(hash).await,
+                None => self.rpc.get_block_by_hash(hash).await,
+            },
             None => Ok(None),
         }
     }

@@ -48,19 +48,19 @@ pub struct BlockchainInfo {
     pub bestblockhash: H256,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Block {
     pub height: u32,
     #[serde(deserialize_with = "H256::deserialize_hex")]
     pub hash: H256,
     #[serde(
-        rename(deserialize = "previousblockhash"),
+        rename = "previousblockhash",
         deserialize_with = "H256::deserialize_hex_some",
         default
     )]
     pub prev_hash: Option<H256>,
     #[serde(
-        rename(deserialize = "nextblockhash"),
+        rename = "nextblockhash",
         deserialize_with = "H256::deserialize_hex_some",
         default
     )]
@@ -71,19 +71,19 @@ pub struct Block {
     pub time: u32,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Transaction {
     #[serde(deserialize_with = "H256::deserialize_hex")]
     pub hash: H256,
     #[serde(deserialize_with = "hex::deserialize")]
     pub hex: Vec<u8>,
-    #[serde(rename(deserialize = "vin"))]
+    #[serde(rename = "vin")]
     pub inputs: Vec<TransactionInput>,
-    #[serde(rename(deserialize = "vout"))]
+    #[serde(rename = "vout")]
     pub outputs: Vec<TransactionOutput>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum TransactionInput {
     Coinbase { hex: Vec<u8> },
     Usual { txid: Option<H256>, vout: u32 },
@@ -188,12 +188,12 @@ impl<'de> Deserialize<'de> for TransactionInput {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TransactionOutput {
     // Require `serde_json` with feature `arbitrary_precision`
     #[serde(deserialize_with = "de_vout_value")]
     pub value: String,
-    #[serde(rename(deserialize = "scriptPubKey"))]
+    #[serde(rename = "scriptPubKey")]
     pub script: TransactionOutputScript,
 }
 
@@ -222,7 +222,7 @@ fn de_vout_value<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D
     deserializer.deserialize_any(Visitor)
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TransactionOutputScript {
     pub addresses: Option<Vec<String>>,
 }

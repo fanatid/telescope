@@ -122,17 +122,25 @@ impl Indexer {
             })));
         }
 
+        let mut ready = vec![false; jobs as usize];
         poll_fn(move |cx| {
             let mut is_pending = false;
 
-            for task in tasks.iter_mut() {
-                let mut fut = unsafe { Pin::new_unchecked(task) };
+            for (i, task) in tasks.iter_mut().enumerate() {
+                if ready[i] {
+                    continue;
+                }
 
+                let mut fut = unsafe { Pin::new_unchecked(task) };
                 if fut.as_mut().poll(cx).is_pending() {
                     is_pending = true;
-                } else if fut.as_mut().output_mut().unwrap().is_err() {
-                    let err = fut.as_mut().take_output().unwrap().unwrap_err();
-                    return Poll::Ready(Err(err.into()));
+                } else {
+                    // Unwrap MaybeDone output and then JoinHandle (tokio::spawn)
+                    if let Err(err) = fut.as_mut().take_output().unwrap().unwrap() {
+                        return Poll::Ready(Err(err));
+                    }
+
+                    ready[i] = true;
                 }
             }
 
